@@ -1,5 +1,3 @@
-// lib/utils/task_storage.dart
-
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -9,7 +7,7 @@ import 'package:solidpod/solidpod.dart';
 import '../models/task.dart';
 
 class TaskStorage {
-  /// Load tasks from your Pod if available, else from local cache.
+  // Load tasks from Pod if available, else from local cache.
   static Future<List<Task>> loadTasks(
     BuildContext context,
     Widget childPage,
@@ -41,7 +39,7 @@ class TaskStorage {
     return list.map((e) => Task.fromJson(e)).toList();
   }
 
-  /// Save tasks both locally and to your Solid Pod.
+  // Save tasks both locally and to your Solid Pod.
   static Future<bool> saveTasks(
     BuildContext context,
     Widget childPage,
@@ -60,11 +58,11 @@ class TaskStorage {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('tasks.json', rawJson);
 
-    // 4) Push to your Pod
+    // 4) Push to Pod
     await loginIfRequired(context);
     try {
       final status = await writePod(
-        'tasks.json',    // relative path under your appDirectory
+        'tasks.json',    
         rawJson,
         context,
         childPage,

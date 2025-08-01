@@ -30,10 +30,8 @@ Widget buildSolidLogin() {
   return Builder(
     builder: (context) {
       return SolidLogin(
-        required: false,
+        required: true,
         title: 'My To‑Do App',
-        appDirectory: 'mytasks',
-        webID: 'https://pod.solidcommunity.au/profile/card#me', 
         child: const TodoHomePage(),
       );
     },
