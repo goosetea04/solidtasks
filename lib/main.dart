@@ -15,7 +15,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'My To‑Do App',
+      title: 'SolidTasks',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
       ),
@@ -31,7 +31,7 @@ Widget buildSolidLogin() {
     builder: (context) {
       return SolidLogin(
         required: true,
-        title: 'My To‑Do App',
+        title: 'SolidTasks',
         child: const TodoHomePage(),
       );
     },
