@@ -91,7 +91,7 @@ class PodService {
       widget,
     );
 
-    debugPrint('Raw data from POD: ${taskDataStr.substring(0, taskDataStr.length > 200 ? 200 : taskDataStr.length)}...');
+    debugPrint('Reading Raw data from POD: $taskDataStr');
 
     if (taskDataStr.isEmpty) {
       return [];
@@ -171,7 +171,6 @@ class PodService {
 
     debugPrint('Turtle content to save: ${turtleContent.substring(0, turtleContent.length > 300 ? 300 : turtleContent.length)}...');
 
-    // Use RELATIVE path for writePod
     final relativePath = '/solidtasks/data/$myTasksFile';
     debugPrint('Writing to relative path: $relativePath');
 
