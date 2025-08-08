@@ -9,6 +9,54 @@ class PodService {
   static const String myTasksFile = 'tasks.ttl';
   static const String updateTimeLabel = 'lastUpdated';
 
+  // Logout user and clear session
+  static Future<bool> logout() async {
+    try {
+      debugPrint('Logging out user...');
+      
+      // Use the official solidpod deleteLogIn method
+      // This deletes login information from local storage
+      final success = await deleteLogIn();
+      
+      if (success) {
+        debugPrint('User logged out successfully');
+        return true;
+      } else {
+        debugPrint('Failed to delete login information');
+        return false;
+      }
+    } catch (e) {
+      debugPrint('Error during logout: $e');
+      return false;
+    }
+  }
+
+  // Alternative logout with popup (if you prefer the built-in UI)
+  static Future<void> logoutWithPopup(BuildContext context) async {
+    try {
+      debugPrint('Showing logout popup...');
+      
+      // Use the official solidpod logoutPopup method
+      await logoutPopup(context, const Text('Logout'));
+      
+      debugPrint('Logout popup completed');
+    } catch (e) {
+      debugPrint('Error during logout popup: $e');
+      rethrow;
+    }
+  }
+
+  // Check if user is currently logged in
+  static Future<bool> isLoggedIn() async {
+    try {
+      final webId = await getWebId();
+      return webId != null && webId.isNotEmpty;
+    } catch (e) {
+      debugPrint('Error checking login status: $e');
+      return false;
+    }
+  }
+
   // Load tasks from POD
   static Future<List<Task>> loadTasks(BuildContext context, StatefulWidget widget) async {
     debugPrint('Starting to load tasks from POD...');

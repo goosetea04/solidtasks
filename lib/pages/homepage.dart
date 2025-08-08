@@ -6,6 +6,7 @@ import '../widgets/task_item.dart';
 import '../widgets/add_task_widget.dart';
 import '../widgets/edit_task_dialog.dart';
 import '../widgets/empty_state.dart';
+import '../widgets/logout_dialog.dart';
 
 class TodoHomePage extends ConsumerStatefulWidget {
   const TodoHomePage({Key? key}) : super(key: key);
@@ -91,7 +92,7 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
     _saveTasksToPod();
   }
 
-  void _updateTask(String id, String newTitle, DateTime? dueDate) {
+  void _updateTask(String id, String newTitle, {DateTime? dueDate}) {
     ref.read(tasksProvider.notifier).updateTask(id, newTitle, dueDate: dueDate);
     _saveTasksToPod();
   }
@@ -100,8 +101,47 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
     showEditTaskDialog(
       context,
       task,
-      (title, dueDate) => _updateTask(task.id, title, dueDate),
+      (title, dueDate) => _updateTask(task.id, title, dueDate: dueDate),
     );
+  }
+
+  Future<void> _logout() async {
+    // Show confirmation dialog
+    final confirmed = await showLogoutDialog(context);
+
+    if (confirmed == true) {
+      setState(() {
+        _isLoading = true;
+      });
+
+      try {
+        // Clear all tasks from local state
+        ref.read(tasksProvider.notifier).setTasks([]);
+        
+        // Logout from POD using official deleteLogIn method
+        final success = await PodService.logout();
+        
+        if (success && mounted) {
+          _showSuccessSnackBar('Logged out successfully!');
+          
+          // You can navigate to login screen here if you have one
+          // Navigator.of(context).pushReplacementNamed('/login');
+        } else if (mounted) {
+          _showErrorSnackBar('Error during logout. Please try again.');
+        }
+      } catch (e) {
+        debugPrint('Logout error: $e');
+        if (mounted) {
+          _showErrorSnackBar('Logout failed: $e');
+        }
+      } finally {
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+        }
+      }
+    }
   }
 
   // UI Helper methods
@@ -141,6 +181,12 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
         title: const Text('My To‑Do List'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
+          // Logout button
+          IconButton(
+            onPressed: _logout,
+            icon: const Icon(Icons.logout),
+            tooltip: 'Logout',
+          ),
           // Sync button
           IconButton(
             onPressed: _isSyncing ? null : _saveTasksToPod,

@@ -32,6 +32,7 @@ Widget buildSolidLogin() {
       return SolidLogin(
         required: true,
         title: 'SolidTasks',
+        logo:  const AssetImage('assets/logo.png'),
         child: const TodoHomePage(),
       );
     },
