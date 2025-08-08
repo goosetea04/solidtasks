@@ -15,25 +15,37 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'My To‑Do App',
+      title: 'SolidTasks',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
       ),
       debugShowCheckedModeBanner: false,
-      home: buildSolidLogin(),
+      home: const SolidTasksApp(),
     );
   }
 }
 
-// Build the Solid login widget
-Widget buildSolidLogin() {
-  return Builder(
-    builder: (context) {
-      return SolidLogin(
-        required: true,
-        title: 'My To‑Do App',
-        child: const TodoHomePage(),
-      );
-    },
+// Wrapper class to handle the SolidLogin
+class SolidTasksApp extends StatelessWidget {
+  const SolidTasksApp({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return SolidLogin(
+      required: true,
+      title: 'SolidTasks',
+      logo: const AssetImage('assets/logo.png'),
+      child: const TodoHomePage(),
+    );
+  }
+}
+
+// Helper function to restart the app (useful for logout)
+void restartApp(BuildContext context) {
+  Navigator.of(context).pushAndRemoveUntil(
+    MaterialPageRoute(
+      builder: (context) => const MyApp(),
+    ),
+    (route) => false,
   );
 }
