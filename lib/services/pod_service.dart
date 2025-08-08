@@ -67,7 +67,7 @@ class PodService {
 
   // Load tasks from POD
   static Future<List<Task>> loadTasks(BuildContext context, StatefulWidget widget) async {
-    debugPrint('Starting to load tasks from POD...');
+    debugPrint('=== STARTING LOAD TASKS ===');
     
     final loggedIn = await loginIfRequired(context);
     if (!loggedIn) {
@@ -98,7 +98,10 @@ class PodService {
       context,
       widget,
     );
-
+    debugPrint('=== RAW DATA RECEIVED ===');
+    debugPrint('Data length: ${taskDataStr.length}');
+    debugPrint('Contains encData: ${taskDataStr.contains('solidTerms:encData')}');
+    debugPrint('Contains solid:content: ${taskDataStr.contains('solid:content')}');
     debugPrint('Reading Raw data from POD: $taskDataStr');
 
     if (taskDataStr.isEmpty) {
