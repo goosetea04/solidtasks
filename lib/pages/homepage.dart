@@ -106,8 +106,28 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
   }
 
   Future<void> _logout() async {
-    // Show confirmation dialog
-    final confirmed = await showLogoutDialog(context);
+    // Show simple confirmation dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Logout'),
+        content: const Text('Are you sure you want to logout?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Logout'),
+          ),
+        ],
+      ),
+    );
 
     if (confirmed == true) {
       setState(() {
@@ -118,14 +138,12 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
         // Clear all tasks from local state
         ref.read(tasksProvider.notifier).setTasks([]);
         
-        // Logout from POD using official deleteLogIn method
-        final success = await PodService.logout();
+        // Logout from POD - this will handle navigation automatically
+        final success = await PodService.logout(context);
         
+        // Note: The code below might not execute if navigation happens immediately
         if (success && mounted) {
           _showSuccessSnackBar('Logged out successfully!');
-          
-          // You can navigate to login screen here if you have one
-          // Navigator.of(context).pushReplacementNamed('/login');
         } else if (mounted) {
           _showErrorSnackBar('Error during logout. Please try again.');
         }

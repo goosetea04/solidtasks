@@ -34,12 +34,12 @@ class TaskStorage {
       rawJson = prefs.getString('tasks.json') ?? '[]';
     }
 
-    // 5) Deserialize into your Task model
+    // 5) Deserialize into ask model
     final List list = json.decode(rawJson);
     return list.map((e) => Task.fromJson(e)).toList();
   }
 
-  // Save tasks both locally and to your Solid Pod.
+  // Save tasks both locally and to Solid Pod.
   static Future<bool> saveTasks(
     BuildContext context,
     Widget childPage,

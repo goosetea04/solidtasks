@@ -3,14 +3,15 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:solidpod/solidpod.dart';
 import '../models/task.dart';
+import '../main.dart'; // Import for restartApp function
 
 class PodService {
   static const String profCard = '/profile/card#me';
   static const String myTasksFile = 'tasks.ttl';
   static const String updateTimeLabel = 'lastUpdated';
 
-  // Logout user and clear session
-  static Future<bool> logout() async {
+  // Logout user and clear session - triggers SolidLogin to show login screen
+  static Future<bool> logout(BuildContext context) async {
     try {
       debugPrint('Logging out user...');
       
@@ -20,6 +21,12 @@ class PodService {
       
       if (success) {
         debugPrint('User logged out successfully');
+        
+        // Restart the app to trigger SolidLogin to show login screen
+        if (context.mounted) {
+          restartApp(context);
+        }
+        
         return true;
       } else {
         debugPrint('Failed to delete login information');
@@ -31,12 +38,13 @@ class PodService {
     }
   }
 
-  // Alternative logout with popup (if you prefer the built-in UI)
+  // Alternative logout with built-in popup - this should handle navigation automatically
   static Future<void> logoutWithPopup(BuildContext context) async {
     try {
       debugPrint('Showing logout popup...');
       
       // Use the official solidpod logoutPopup method
+      // This should automatically handle the navigation back to login
       await logoutPopup(context, const Text('Logout'));
       
       debugPrint('Logout popup completed');
