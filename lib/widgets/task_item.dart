@@ -6,6 +6,7 @@ class TaskItem extends StatelessWidget {
   final VoidCallback onToggle;
   final VoidCallback onDelete;
   final VoidCallback onEdit;
+  final VoidCallback? onShare;
 
   const TaskItem({
     Key? key,
@@ -13,6 +14,7 @@ class TaskItem extends StatelessWidget {
     required this.onToggle,
     required this.onDelete,
     required this.onEdit,
+    this.onShare,
   }) : super(key: key);
 
   @override
@@ -35,40 +37,51 @@ class TaskItem extends StatelessWidget {
             ? Text(
                 'Due: ${task.dueDate!.day}/${task.dueDate!.month}/${task.dueDate!.year}',
                 style: TextStyle(
-                  color: task.dueDate!.isBefore(DateTime.now()) 
-                      ? Colors.red 
+                  color: task.dueDate!.isBefore(DateTime.now())
+                      ? Colors.red
                       : Colors.grey[600],
                 ),
               )
             : null,
-        trailing: PopupMenuButton<String>(
-          onSelected: (value) {
-            if (value == 'edit') {
-              onEdit();
-            } else if (value == 'delete') {
-              onDelete();
-            }
-          },
-          itemBuilder: (context) => [
-            const PopupMenuItem(
-              value: 'edit',
-              child: Row(
-                children: [
-                  Icon(Icons.edit),
-                  SizedBox(width: 8),
-                  Text('Edit'),
-                ],
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (onShare != null)
+              IconButton(
+                icon: const Icon(Icons.person_add_alt_1),
+                tooltip: 'Share',
+                onPressed: onShare,
               ),
-            ),
-            const PopupMenuItem(
-              value: 'delete',
-              child: Row(
-                children: [
-                  Icon(Icons.delete, color: Colors.red),
-                  SizedBox(width: 8),
-                  Text('Delete', style: TextStyle(color: Colors.red)),
-                ],
-              ),
+            PopupMenuButton<String>(
+              onSelected: (value) {
+                if (value == 'edit') {
+                  onEdit();
+                } else if (value == 'delete') {
+                  onDelete();
+                }
+              },
+              itemBuilder: (context) => const [
+                PopupMenuItem(
+                  value: 'edit',
+                  child: Row(
+                    children: [
+                      Icon(Icons.edit),
+                      SizedBox(width: 8),
+                      Text('Edit'),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'delete',
+                  child: Row(
+                    children: [
+                      Icon(Icons.delete, color: Colors.red),
+                      SizedBox(width: 8),
+                      Text('Delete', style: TextStyle(color: Colors.red)),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ],
         ),

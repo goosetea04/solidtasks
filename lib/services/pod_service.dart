@@ -15,6 +15,23 @@ class PodService {
   static const String _taskPrefix = 'task_';
   static const String _taskExt = '.ttl';
 
+  static Future<void> openShareUiForTask(
+    BuildContext context,
+    StatefulWidget returnTo,
+    String taskId,
+  ) async {
+    final fileName = _fileNameForTask(taskId); 
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => GrantPermissionUi(
+          fileName: fileName, // limit UI to just this task file
+          child: returnTo,    // where to return after the UI
+        ),
+      ),
+    );
+  }
+
   // Auth / Session
   static Future<bool> logout(BuildContext context) async {
     try {
