@@ -42,7 +42,7 @@ dependencies:
   intl: ^0.20.2
   package_info_plus: ^8.3.0
   shared_preferences: ^2.2.2
-  solidpod: ^0.7.2
+  solidpod: ^0.7.7
   timezone: ^0.9.4
   version_widget: ^1.0.2
   animated_icon: ^0.0.9

@@ -7,6 +7,10 @@ import '../widgets/add_task_widget.dart';
 import '../widgets/edit_task_dialog.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/logout_dialog.dart';
+import 'shared_tasks_page.dart';
+import 'package:solidpod/solidpod.dart' show SharedResourcesUi, GrantPermissionUi;
+
+
 
 class TodoHomePage extends ConsumerStatefulWidget {
   const TodoHomePage({Key? key}) : super(key: key);
@@ -80,6 +84,10 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
   void _addTask(String title) {
     ref.read(tasksProvider.notifier).addTask(title);
     _saveTasksToPod();
+  }
+
+  void _shareTask(String id) {
+    PodService.openShareUiForTask(context, widget, id);
   }
 
   void _toggleTask(String id) {
@@ -199,6 +207,30 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
         title: const Text('My To‑Do List'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
+          IconButton(
+            tooltip: 'Shared tasks',
+            icon: const Icon(Icons.group),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const SharedTasksPage()),
+              );
+            },
+          ),
+          IconButton(
+            tooltip: 'Shared with me',
+            icon: const Icon(Icons.group),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const SharedResourcesUi(
+                    child: TodoHomePage(), // return destination
+                  ),
+                ),
+              );
+            },
+          ),
           // Logout button
           IconButton(
             onPressed: _logout,
@@ -249,6 +281,7 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
                             onToggle: () => _toggleTask(task.id),
                             onDelete: () => _deleteTask(task.id),
                             onEdit: () => _showEditTaskDialog(task),
+                            onShare:  () => _shareTask(task.id),
                           );
                         },
                       ),
