@@ -13,56 +13,60 @@ class AddTaskWidget extends StatefulWidget {
 }
 
 class _AddTaskWidgetState extends State<AddTaskWidget> {
-  final TextEditingController _taskController = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
 
-  @override
-  void dispose() {
-    _taskController.dispose();
-    super.dispose();
+  Future<void> _openAddTaskDialog() async {
+    final titleController = TextEditingController();
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('New Task'),
+        content: Form(
+          key: _formKey,
+          child: TextFormField(
+            controller: titleController,
+            autofocus: true,
+            decoration: const InputDecoration(
+              labelText: 'Title *',
+              hintText: 'e.g., Finish report draft',
+              border: OutlineInputBorder(),
+            ),
+            textInputAction: TextInputAction.done,
+            onFieldSubmitted: (_) => _submit(ctx, titleController),
+            validator: (v) =>
+                (v == null || v.trim().isEmpty) ? 'Please enter a task title' : null,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => _submit(ctx, titleController),
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
   }
 
-  void _addTask() {
-    if (_taskController.text.trim().isNotEmpty) {
-      widget.onAddTask(_taskController.text.trim());
-      _taskController.clear();
+  void _submit(BuildContext dialogContext, TextEditingController c) {
+    if (_formKey.currentState?.validate() ?? false) {
+      widget.onAddTask(c.text.trim());
+      Navigator.of(dialogContext).pop();
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16.0),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            spreadRadius: 1,
-            blurRadius: 3,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: TextField(
-              controller: _taskController,
-              decoration: const InputDecoration(
-                hintText: 'Add a new task...',
-                border: OutlineInputBorder(),
-                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              ),
-              onSubmitted: (_) => _addTask(),
-            ),
-          ),
-          const SizedBox(width: 8),
-          ElevatedButton(
-            onPressed: _addTask,
-            child: const Icon(Icons.add),
-          ),
-        ],
-      ),
+    return FloatingActionButton.extended(
+      heroTag: 'add_task_fab',
+      icon: const Icon(Icons.add),
+      label: const Text('Add task'),
+      onPressed: _openAddTaskDialog,
     );
   }
 }

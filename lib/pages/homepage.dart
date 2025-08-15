@@ -207,6 +207,7 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
         title: const Text('My To‑Do List'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
+          // Shared resources button
           IconButton(
             tooltip: 'Shared tasks',
             icon: const Icon(Icons.group),
@@ -217,6 +218,7 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
               );
             },
           ),
+          // Legacy shared resources button
           IconButton(
             tooltip: 'Shared with me',
             icon: const Icon(Icons.group),
@@ -260,34 +262,27 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          // Add task section
-          AddTaskWidget(onAddTask: _addTask),
-          
-          // Tasks list
-          Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : tasks.isEmpty
-                    ? const EmptyState()
-                    : ListView.builder(
-                        padding: const EdgeInsets.all(8.0),
-                        itemCount: tasks.length,
-                        itemBuilder: (context, index) {
-                          final task = tasks[index];
-                          return TaskItem(
-                            task: task,
-                            onToggle: () => _toggleTask(task.id),
-                            onDelete: () => _deleteTask(task.id),
-                            onEdit: () => _showEditTaskDialog(task),
-                            onShare:  () => _shareTask(task.id),
-                          );
-                        },
-                      ),
-          ),
-        ],
-      ),
+      body: _isLoading
+        ? const Center(child: CircularProgressIndicator())
+        : tasks.isEmpty
+            ? const EmptyState()
+            : ListView.builder(
+                padding: const EdgeInsets.fromLTRB(8, 8, 8, 96), // keep FAB clear
+                itemCount: tasks.length,
+                itemBuilder: (context, index) {
+                  final task = tasks[index];
+                  return TaskItem(
+                    task: task,
+                    onToggle: () => _toggleTask(task.id),
+                    onDelete: () => _deleteTask(task.id),
+                    onEdit: () => _showEditTaskDialog(task),
+                    onShare: () => _shareTask(task.id),
+                  );
+                },
+              ),
+      // Bottom-right overlay button
+      floatingActionButton: AddTaskWidget(onAddTask: _addTask),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
     );
   }
 }
