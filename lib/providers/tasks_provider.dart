@@ -13,10 +13,15 @@ class TasksNotifier extends StateNotifier<List<Task>> {
     state = tasks;
   }
 
-  void addTask(String title, {DateTime? dueDate}) {
+  void addTask(
+    String title, {
+    String? description,
+    DateTime? dueDate,
+  }) {
     final task = Task(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       title: title,
+      description: description,
       dueDate: dueDate,
     );
     state = [...state, task];

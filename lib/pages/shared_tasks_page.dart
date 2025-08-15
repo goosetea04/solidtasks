@@ -16,6 +16,7 @@ class _SharedTasksPageState extends State<SharedTasksPage> {
   bool _loading = true;
   String? _error;
   List<SharedEntry> _items = [];
+  
 
   @override
   void initState() {
@@ -180,6 +181,7 @@ class _SharedTaskEditorPageState extends State<_SharedTaskEditorPage> {
   String? _error;
   Task? _task;
   final _titleCtrl = TextEditingController();
+  final _descCtrl = TextEditingController();
   DateTime? _dueDate;
   bool _isDone = false;
 
@@ -192,6 +194,7 @@ class _SharedTaskEditorPageState extends State<_SharedTaskEditorPage> {
   @override
   void dispose() {
     _titleCtrl.dispose();
+    _descCtrl.dispose();
     super.dispose();
   }
 
@@ -227,6 +230,7 @@ class _SharedTaskEditorPageState extends State<_SharedTaskEditorPage> {
 
       _task = t;
       _titleCtrl.text = t.title;
+      _descCtrl.text = t.description ?? '';
       _dueDate = t.dueDate;
       _isDone = t.isDone;
       setState(() {});
@@ -247,6 +251,7 @@ class _SharedTaskEditorPageState extends State<_SharedTaskEditorPage> {
         title: _titleCtrl.text.trim(),
         dueDate: _dueDate,
         isDone: _isDone,
+        description: _descCtrl.text.trim().isEmpty ? null : _descCtrl.text.trim(),
       );
       final ttl = _taskToTurtle(updated);
 
@@ -311,6 +316,17 @@ class _SharedTaskEditorPageState extends State<_SharedTaskEditorPage> {
                         TextField(
                           controller: _titleCtrl,
                           decoration: const InputDecoration(labelText: 'Title'),
+                          enabled: _canEdit(),
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: _descCtrl,
+                          maxLines: 4,
+                          decoration: const InputDecoration(
+                            labelText: 'Description',
+                            hintText: 'Optional details about this task',
+                            border: OutlineInputBorder(),
+                          ),
                           enabled: _canEdit(),
                         ),
                         const SizedBox(height: 8),

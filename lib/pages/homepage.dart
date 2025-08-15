@@ -81,10 +81,15 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
   }
 
   // Task management methods
-  void _addTask(String title) {
-    ref.read(tasksProvider.notifier).addTask(title);
+  void _addTask(String title, String? description, DateTime? dueDate) {
+    ref.read(tasksProvider.notifier).addTask(
+      title,
+      description: description,
+      dueDate: dueDate,
+    );
     _saveTasksToPod();
   }
+
 
   void _shareTask(String id) {
     PodService.openShareUiForTask(context, widget, id);
