@@ -105,8 +105,8 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
     _saveTasksToPod();
   }
 
-  void _updateTask(String id, String newTitle, {DateTime? dueDate}) {
-    ref.read(tasksProvider.notifier).updateTask(id, newTitle, dueDate: dueDate);
+  void _updateTask(String id, String newTitle, {String? description, DateTime? dueDate}) {
+    ref.read(tasksProvider.notifier).updateTask(id, newTitle, description: description, dueDate: dueDate);
     _saveTasksToPod();
   }
 
@@ -114,7 +114,14 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
     showEditTaskDialog(
       context,
       task,
-      (title, dueDate) => _updateTask(task.id, title, dueDate: dueDate),
+      (String title, String? description, DateTime? dueDate) {
+        _updateTask(
+          task.id,
+          title,
+          description: description, 
+          dueDate: dueDate,
+        );
+      },
     );
   }
 

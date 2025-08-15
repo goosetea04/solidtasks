@@ -37,27 +37,28 @@ class Task {
       isDone: json['isDone'] as bool? ?? false,
       dueDate: json['dueDate'] != null ? DateTime.parse(json['dueDate']) : null,
       description: json['description'] as String?,
-      createdAt: json['createdAt'] != null
-          ? DateTime.parse(json['createdAt'])
-          : DateTime.now(),
-      updatedAt: json['updatedAt'] != null
-          ? DateTime.parse(json['updatedAt'])
-          : DateTime.now(),
+      createdAt: json['createdAt'] != null ? DateTime.parse(json['createdAt']) : DateTime.now(),
+      updatedAt: json['updatedAt'] != null ? DateTime.parse(json['updatedAt']) : DateTime.now(),
     );
   }
+
+  // Sentinel to allow explicit null (clear) vs no change
+  static const Object _noChange = Object();
 
   Task copyWith({
     String? title,
     bool? isDone,
     DateTime? dueDate,
-    String? description,
+    Object? description = _noChange, // use Object? not String?
   }) {
     return Task(
       id: id,
       title: title ?? this.title,
       isDone: isDone ?? this.isDone,
       dueDate: dueDate ?? this.dueDate,
-      description: description ?? this.description,
+      description: identical(description, _noChange)
+          ? this.description
+          : description as String?, // can set to null to clear
       createdAt: createdAt,
       updatedAt: DateTime.now(),
     );
