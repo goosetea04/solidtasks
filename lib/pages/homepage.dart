@@ -222,7 +222,7 @@ Widget build(BuildContext context) {
 
   return Scaffold(
     appBar: AppBar(
-      title: const Text('My To-Do List'),
+      title: const Text('Solid Tasks'),
       backgroundColor: Theme.of(context).colorScheme.inversePrimary,
       actions: [
         // Shared resources button

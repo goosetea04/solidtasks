@@ -31,62 +31,68 @@ class _AddTaskWidgetState extends State<AddTaskWidget> {
         content: Form(
           key: _formKey,
           child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextFormField(
-                  controller: _titleController,
-                  autofocus: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Title *',
-                    hintText: 'e.g., Finish report draft',
-                    border: OutlineInputBorder(),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                maxWidth: 400, // Constant width for dialog
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(
+                    controller: _titleController,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Title *',
+                      hintText: 'e.g., Finish report draft',
+                      border: OutlineInputBorder(),
+                    ),
+                    textInputAction: TextInputAction.next,
+                    validator: (v) => (v == null || v.trim().isEmpty)
+                        ? 'Please enter a task title'
+                        : null,
                   ),
-                  textInputAction: TextInputAction.next,
-                  validator: (v) => (v == null || v.trim().isEmpty)
-                      ? 'Please enter a task title'
-                      : null,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _descriptionController,
-                  decoration: const InputDecoration(
-                    labelText: 'Description',
-                    hintText: 'Optional details about the task',
-                    border: OutlineInputBorder(),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _descriptionController,
+                    decoration: const InputDecoration(
+                      labelText: 'Description',
+                      hintText: 'Optional details about the task',
+                      border: OutlineInputBorder(),
+                    ),
+                    minLines: 3,   // This starts with 3 lines
+                    maxLines: 6,   // Text box Grows downwards, never sideways
+                    textInputAction: TextInputAction.done,
                   ),
-                  maxLines: 3,
-                  textInputAction: TextInputAction.done,
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        _dueDate != null
-                            ? 'Due: ${_dueDate!.toLocal()}'.split(' ')[0]
-                            : 'No due date set',
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _dueDate != null
+                              ? 'Due: ${_dueDate!.toLocal()}'.split(' ')[0]
+                              : 'No due date set',
+                        ),
                       ),
-                    ),
-                    TextButton(
-                      onPressed: () async {
-                        final pickedDate = await showDatePicker(
-                          context: context,
-                          initialDate: _dueDate ?? DateTime.now(),
-                          firstDate: DateTime.now(),
-                          lastDate: DateTime(2100),
-                        );
-                        if (pickedDate != null) {
-                          setState(() {
-                            _dueDate = pickedDate;
-                          });
-                        }
-                      },
-                      child: const Text('Set Date'),
-                    ),
-                  ],
-                ),
-              ],
+                      TextButton(
+                        onPressed: () async {
+                          final pickedDate = await showDatePicker(
+                            context: context,
+                            initialDate: _dueDate ?? DateTime.now(),
+                            firstDate: DateTime.now(),
+                            lastDate: DateTime(2100),
+                          );
+                          if (pickedDate != null) {
+                            setState(() {
+                              _dueDate = pickedDate;
+                            });
+                          }
+                        },
+                        child: const Text('Set Date'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ),
