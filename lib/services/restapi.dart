@@ -20,6 +20,9 @@ Future<LoadedTasks> loadServerTaskData(
     final dataDirUrl = await getDirUrl(dataDirPath);
     final taskFileUrl = dataDirUrl + myTasksFile;
 
+    final acrUrl = taskFileUrl + '.acr';
+    final acrBody = _defaultAcrForAllTasks(webId);
+
     bool resExist = await checkResourceStatus(taskFileUrl);
 
     if (resExist) {

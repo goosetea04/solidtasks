@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/tasks_provider.dart';
 import '../services/pod_service.dart';
 import '../widgets/task_item.dart';
+import '../widgets/weekly_calendar.dart';
 import '../widgets/add_task_widget.dart';
 import '../widgets/edit_task_dialog.dart';
 import '../widgets/empty_state.dart';
@@ -125,6 +126,7 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
     );
   }
 
+
   Future<void> _logout() async {
     // Show simple confirmation dialog
     final confirmed = await showDialog<bool>(
@@ -210,91 +212,151 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    final tasksNotifier = ref.watch(tasksProvider.notifier);
-    final tasks = ref.watch(tasksProvider);
+Widget build(BuildContext context) {
+  final tasksNotifier = ref.watch(tasksProvider.notifier);
+  final tasks = ref.watch(tasksProvider);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('My To‑Do List'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        actions: [
-          // Shared resources button
-          IconButton(
-            tooltip: 'Shared tasks',
-            icon: const Icon(Icons.group),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const SharedTasksPage()),
-              );
-            },
-          ),
-          // Legacy shared resources button
-          IconButton(
-            tooltip: 'Shared with me',
-            icon: const Icon(Icons.group),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const SharedResourcesUi(
-                    child: TodoHomePage(), // return destination
-                  ),
+  // Get start of this week (Monday)
+  final now = DateTime.now();
+  final weekStart = now.subtract(Duration(days: now.weekday - 1));
+
+  return Scaffold(
+    appBar: AppBar(
+      title: const Text('My To-Do List'),
+      backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+      actions: [
+        // Shared resources button
+        IconButton(
+          tooltip: 'Shared tasks',
+          icon: const Icon(Icons.group),
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const SharedTasksPage()),
+            );
+          },
+        ),
+        // Legacy shared resources button
+        IconButton(
+          tooltip: 'Shared with me',
+          icon: const Icon(Icons.group),
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const SharedResourcesUi(
+                  child: TodoHomePage(), // return destination
                 ),
-              );
-            },
-          ),
-          // Logout button
-          IconButton(
-            onPressed: _logout,
-            icon: const Icon(Icons.logout),
-            tooltip: 'Logout',
-          ),
-          // Sync button
-          IconButton(
-            onPressed: _isSyncing ? null : _saveTasksToPod,
-            icon: _isSyncing ? _buildLoadingIndicator() : const Icon(Icons.sync),
-            tooltip: 'Sync with POD',
-          ),
-          // Refresh button
-          IconButton(
-            onPressed: _isLoading ? null : _loadTasksFromPod,
-            icon: _isLoading ? _buildLoadingIndicator() : const Icon(Icons.refresh),
-            tooltip: 'Reload from POD',
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Center(
-              child: Text(
-                '${tasksNotifier.completedCount}/${tasksNotifier.totalCount}',
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
               ),
+            );
+          },
+        ),
+        // Logout button
+        IconButton(
+          onPressed: _logout,
+          icon: const Icon(Icons.logout),
+          tooltip: 'Logout',
+        ),
+        // Sync button
+        IconButton(
+          onPressed: _isSyncing ? null : _saveTasksToPod,
+          icon: _isSyncing ? _buildLoadingIndicator() : const Icon(Icons.sync),
+          tooltip: 'Sync with POD',
+        ),
+        // Refresh button
+        IconButton(
+          onPressed: _isLoading ? null : _loadTasksFromPod,
+          icon: _isLoading ? _buildLoadingIndicator() : const Icon(Icons.refresh),
+          tooltip: 'Reload from POD',
+        ),
+        Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Center(
+            child: Text(
+              '${tasksNotifier.completedCount}/${tasksNotifier.totalCount}',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
           ),
-        ],
-      ),
-      body: _isLoading
+        ),
+      ],
+    ),
+    body: _isLoading
         ? const Center(child: CircularProgressIndicator())
-        : tasks.isEmpty
-            ? const EmptyState()
-            : ListView.builder(
-                padding: const EdgeInsets.fromLTRB(8, 8, 8, 96), // keep FAB clear
-                itemCount: tasks.length,
-                itemBuilder: (context, index) {
-                  final task = tasks[index];
-                  return TaskItem(
-                    task: task,
-                    onToggle: () => _toggleTask(task.id),
-                    onDelete: () => _deleteTask(task.id),
-                    onEdit: () => _showEditTaskDialog(task),
-                    onShare: () => _shareTask(task.id),
-                  );
-                },
+        : Column(
+            children: [
+              // Weekly calendar view
+              WeeklyCalendar(tasks: tasks, weekStart: weekStart),
+              const Divider(height: 1),
+
+              // Task list
+              Expanded(
+                child: tasks.isEmpty
+                    ? const EmptyState()
+                    : ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(8, 8, 8, 96),
+                        itemCount: tasks.length,
+                        itemBuilder: (context, index) {
+                          final task = tasks[index];
+
+                          return Card(
+                            child: Column(
+                              children: [
+                                TaskItem(
+                                  task: task,
+                                  onToggle: () => _toggleTask(task.id),
+                                  onDelete: () => _deleteTask(task.id),
+                                  onEdit: () => _showEditTaskDialog(task),
+                                  onShare: () => _shareTask(task.id),
+                                ),
+
+                                // ACP info
+                                FutureBuilder<String?>(
+                                  future: PodService.taskFileUrl(task.id).then(
+                                    (url) => PodService.fetchAcrForTask(url),
+                                  ),
+                                  builder: (context, snapshot) {
+                                    if (snapshot.connectionState == ConnectionState.waiting) {
+                                      return const Text("Loading ACP...");
+                                    }
+                                    if (!snapshot.hasData || snapshot.data == null) {
+                                      return const Text("No ACP found");
+                                    }
+
+                                    final acr = snapshot.data!;
+                                    final canRead = acr.contains('acl:Read');
+                                    final canWrite = acr.contains('acl:Write');
+                                    final canControl = acr.contains('acl:Control');
+
+                                    return Wrap(
+                                      spacing: 6,
+                                      children: [
+                                        Chip(
+                                          label: const Text("read"),
+                                          backgroundColor: canRead ? Colors.green[100] : Colors.grey[200],
+                                        ),
+                                        Chip(
+                                          label: const Text("write"),
+                                          backgroundColor: canWrite ? Colors.green[100] : Colors.grey[200],
+                                        ),
+                                        Chip(
+                                          label: const Text("control"),
+                                          backgroundColor: canControl ? Colors.green[100] : Colors.grey[200],
+                                        ),
+                                      ],
+                                    );
+                                  },
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
               ),
-      // Bottom-right overlay button
-      floatingActionButton: AddTaskWidget(onAddTask: _addTask),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-    );
-  }
+            ],
+          ),
+    floatingActionButton: AddTaskWidget(onAddTask: _addTask),
+    floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+  );
+}
+
 }

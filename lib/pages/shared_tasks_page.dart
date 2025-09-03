@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:solidpod/solidpod.dart';
 import '../models/task.dart';
+import '../services/pod_service.dart';
 import '../models/sharedEntry.dart';
 
 /// Lists resources shared to the current WebID and lets you open/edit
@@ -114,18 +115,47 @@ class _SharedTasksPageState extends State<SharedTasksPage> {
                             children: [
                               Text(it.url, maxLines: 1, overflow: TextOverflow.ellipsis),
                               const SizedBox(height: 6),
-                              Wrap(
-                                spacing: 6,
-                                runSpacing: -6,
-                                children: [
-                                  _permChip('read', canRead),
-                                  _permChip('write', canWrite),
-                                  _permChip('append', canAppend),
-                                  _permChip('control', canControl),
-                                ],
+
+                              // --- NEW: FutureBuilder to fetch ACP policies ---
+                              FutureBuilder<String?>(
+                                future: PodService.fetchAcr(it.url),
+                                builder: (context, snapshot) {
+                                  if (snapshot.connectionState == ConnectionState.waiting) {
+                                    return const Text("Loading ACP...");
+                                  }
+                                  if (!snapshot.hasData || snapshot.data == null) {
+                                    // fallback to existing WAC perms if no ACP found
+                                    return Wrap(
+                                      spacing: 6,
+                                      runSpacing: -6,
+                                      children: [
+                                        _permChip('read', canRead),
+                                        _permChip('write', canWrite),
+                                        _permChip('append', canAppend),
+                                        _permChip('control', canControl),
+                                      ],
+                                    );
+                                  }
+
+                                  final acr = snapshot.data!;
+                                  final canReadACP = acr.contains('acl:Read');
+                                  final canWriteACP = acr.contains('acl:Write');
+                                  final canControlACP = acr.contains('acl:Control');
+
+                                  return Wrap(
+                                    spacing: 6,
+                                    runSpacing: -6,
+                                    children: [
+                                      _permChip('read', canReadACP),
+                                      _permChip('write', canWriteACP),
+                                      _permChip('control', canControlACP),
+                                    ],
+                                  );
+                                },
                               ),
                             ],
                           ),
+
                           onTap: canRead
                               ? () {
                                   Navigator.push(

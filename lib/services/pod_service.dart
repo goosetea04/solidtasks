@@ -408,4 +408,109 @@ static String _unescapeTurtleString(String s) {
       throw Exception('Delete failed: ${res.statusCode}');
     }
   }
+  // ACP IMPLEMENTATION EXPERIMENtal
+
+  static Future<void> _writeAcrForTask(
+    String taskFileUrl,
+    String ownerWebId,
+  ) async {
+    try {
+      final acrUrl = '$taskFileUrl.acr';
+      final acrBody = _defaultAcrForTask(ownerWebId);
+
+      final (:accessToken, :dPopToken) = await getTokensForResource(acrUrl, 'PUT');
+      final res = await http.put(
+        Uri.parse(acrUrl),
+        headers: {
+          'Content-Type': 'text/turtle',
+          'Authorization': 'DPoP $accessToken',
+          'DPoP': dPopToken,
+        },
+        body: acrBody,
+      );
+
+      if (res.statusCode == 201 ||
+          res.statusCode == 200 ||
+          res.statusCode == 204) {
+        debugPrint('ACR created/updated for $taskFileUrl');
+      } else {
+        debugPrint('Failed to write ACR for $taskFileUrl => ${res.statusCode} ${res.body}');
+      }
+    } catch (e) {
+      debugPrint('Error writing ACR for $taskFileUrl: $e');
+    } 
+  }
+
+  static Future<String?> fetchAcrForTask(String taskFileUrl) async {
+    try {
+      final acrUrl = '$taskFileUrl.acr';
+      final (:accessToken, :dPopToken) = await getTokensForResource(acrUrl, 'GET');
+      final res = await http.get(
+        Uri.parse(acrUrl),
+        headers: {
+          'Accept': 'text/turtle',
+          'Authorization': 'DPoP $accessToken',
+          'DPoP': dPopToken,
+        },
+      );
+      return res.statusCode == 200 ? res.body : null;
+    } catch (e) {
+      debugPrint('Error fetching ACR: $e');
+      return null;
+    }
+  }
+
+  static Future<String?> fetchAcr(String resourceUrl) async {
+    try {
+      final acrUrl = '$resourceUrl.acr';
+      final (:accessToken, :dPopToken) = await getTokensForResource(acrUrl, 'GET');
+      final res = await http.get(
+        Uri.parse(acrUrl),
+        headers: {
+          'Accept': 'text/turtle',
+          'Authorization': 'DPoP $accessToken',
+          'DPoP': dPopToken,
+        },
+      );
+      return res.statusCode == 200 ? res.body : null;
+    } catch (e) {
+      debugPrint('Error fetching ACR for $resourceUrl: $e');
+      return null;
+    }
+  }
+
+  static Future<String> currentWebId() async {
+    final raw = await getWebId();
+    if (raw == null || raw.isEmpty) {
+      throw Exception("User is not logged in or WebID unavailable.");
+    }
+    return raw.replaceAll(profCard, '');
+  }
+
+  static Future<String> taskFileUrl(String taskId) async {
+    final webId = await currentWebId();
+    return '$webId$tasksDirRel${_taskPrefix}${taskId}${_taskExt}';
+  }
+
+  /// Generates a default ACP policy: owner has full access.
+  static String _defaultAcrForTask(String ownerWebId) {
+    return '''
+  @prefix acp: <http://www.w3.org/ns/solid/acp#>.
+  @prefix acl: <http://www.w3.org/ns/auth/acl#>.
+
+  <> a acp:AccessControlResource;
+    acp:accessControl <#ownerAccess>.
+
+  <#ownerAccess> a acp:AccessControl;
+    acp:apply <#ownerPolicy>.
+
+  <#ownerPolicy> a acp:Policy;
+    acp:allow acl:Read, acl:Write, acl:Control;
+    acp:anyOf ( <${ownerWebId}profile/card#me> ).
+  ''';
+  }
+
 }
+
+
+
