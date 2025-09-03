@@ -13,10 +13,15 @@ class TasksNotifier extends StateNotifier<List<Task>> {
     state = tasks;
   }
 
-  void addTask(String title, {DateTime? dueDate}) {
+  void addTask(
+    String title, {
+    String? description,
+    DateTime? dueDate,
+  }) {
     final task = Task(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       title: title,
+      description: description,
       dueDate: dueDate,
     );
     state = [...state, task];
@@ -35,10 +40,10 @@ class TasksNotifier extends StateNotifier<List<Task>> {
     state = state.where((task) => task.id != id).toList();
   }
 
-  void updateTask(String id, String newTitle, {DateTime? dueDate}) {
+  void updateTask(String id, String newTitle, {String? description, DateTime? dueDate}) {
     state = state.map((task) {
       if (task.id == id) {
-        return task.copyWith(title: newTitle, dueDate: dueDate);
+        return task.copyWith(title: newTitle, description: description, dueDate: dueDate);
       }
       return task;
     }).toList();
