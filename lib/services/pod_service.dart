@@ -171,23 +171,26 @@ static Future<String?> _httpGetTextTurtle(String fullUrl) async {
         .toSet();
 
     // Write/update each task file
+
     for (final task in tasks) {
       final fileName = _fileNameForTask(task.id);
       final turtle = _taskToTurtle(task);
       debugPrint('Writing $fileName ...');
       final status = await writePod(
-        fileName, 
+        fileName,
         turtle,
         context,
         widget,
         encrypted: false,
       );
       debugPrint('Write $fileName status: $status');
-      if (status != SolidFunctionCallStatus.success) {
-        throw Exception('Failed to save $fileName. Status: $status');
+      if (status == SolidFunctionCallStatus.success) {
+        // Write default ACR for this task
+        final ownerWebId = await currentWebId();
+        final fileUrl = '$fullDirPath$fileName';
+        await writeDefaultAcrForResource(fileUrl, ownerWebId);
       }
     }
-
     debugPrint('Per-task sync complete.');
   }
 
@@ -408,4 +411,177 @@ static String _unescapeTurtleString(String s) {
       throw Exception('Delete failed: ${res.statusCode}');
     }
   }
+  
+  // ACP IMPLEMENTATION EXPERIMENTAL
+
+  static Future<void> _writeAcrForTask(
+    String taskFileUrl,
+    String ownerWebId,
+  ) async {
+    try {
+      final acrUrl = '$taskFileUrl.acr';
+      final acrBody = _defaultAcrForTask(ownerWebId);
+
+      final (:accessToken, :dPopToken) = await getTokensForResource(acrUrl, 'PUT');
+      final res = await http.put(
+        Uri.parse(acrUrl),
+        headers: {
+          'Content-Type': 'text/turtle',
+          'Authorization': 'DPoP $accessToken',
+          'DPoP': dPopToken,
+        },
+        body: acrBody,
+      );
+
+      if (res.statusCode == 201 ||
+          res.statusCode == 200 ||
+          res.statusCode == 204) {
+        debugPrint('ACR created/updated for $taskFileUrl');
+      } else {
+        debugPrint('Failed to write ACR for $taskFileUrl => ${res.statusCode} ${res.body}');
+      }
+    } catch (e) {
+      debugPrint('Error writing ACR for $taskFileUrl: $e');
+    } 
+  }
+
+  static Future<String?> fetchAcrForTask(String taskFileUrl) async {
+    try {
+      final acrUrl = '$taskFileUrl.acr';
+      final (:accessToken, :dPopToken) = await getTokensForResource(acrUrl, 'GET');
+      final res = await http.get(
+        Uri.parse(acrUrl),
+        headers: {
+          'Accept': 'text/turtle',
+          'Authorization': 'DPoP $accessToken',
+          'DPoP': dPopToken,
+        },
+      );
+      return res.statusCode == 200 ? res.body : null;
+    } catch (e) {
+      debugPrint('Error fetching ACR: $e');
+      return null;
+    }
+  }
+
+  static Future<String?> fetchAcr(String resourceUrl) async {
+    try {
+      final acrUrl = '$resourceUrl.acr';
+      final (:accessToken, :dPopToken) = await getTokensForResource(acrUrl, 'GET');
+      final res = await http.get(
+        Uri.parse(acrUrl),
+        headers: {
+          'Accept': 'text/turtle',
+          'Authorization': 'DPoP $accessToken',
+          'DPoP': dPopToken,
+        },
+      );
+      return res.statusCode == 200 ? res.body : null;
+    } catch (e) {
+      debugPrint('Error fetching ACR for $resourceUrl: $e');
+      return null;
+    }
+  }
+
+  static Future<String> currentWebId() async {
+    final raw = await getWebId();
+    if (raw == null || raw.isEmpty) {
+      throw Exception("User is not logged in or WebID unavailable.");
+    }
+    return raw.replaceAll(profCard, '');
+  }
+
+  static Future<String> taskFileUrl(String taskId) async {
+    final webId = await currentWebId();
+    return '$webId$tasksDirRel${_taskPrefix}${taskId}${_taskExt}';
+  }
+
+  /// Generates a default ACP policy: owner has full access.
+  static String _defaultAcrForTask(String ownerWebId) {
+    return '''
+  @prefix acp: <http://www.w3.org/ns/solid/acp#>.
+  @prefix acl: <http://www.w3.org/ns/auth/acl#>.
+
+  <> a acp:AccessControlResource;
+    acp:accessControl <#ownerAccess>.
+
+  <#ownerAccess> a acp:AccessControl;
+    acp:apply <#ownerPolicy>.
+
+  <#ownerPolicy> a acp:Policy;
+    acp:allow acl:Read, acl:Write, acl:Control;
+    acp:anyOf ( <${ownerWebId}profile/card#me> ).
+  ''';
+  }
+
+  static Future<void> writeDefaultAcrForResource(
+    String resourceUrl,
+    String ownerWebId, {
+    List<String>? allowReadWebIds,
+    List<String>? allowWriteWebIds,
+  }) async {
+    final acrUrl = '$resourceUrl.acr';
+    final acrBody = _generateAcr(
+      ownerWebId,
+      allowReadWebIds: allowReadWebIds,
+      allowWriteWebIds: allowWriteWebIds,
+    );
+
+    final (:accessToken, :dPopToken) = await getTokensForResource(acrUrl, 'PUT');
+    final res = await http.put(
+      Uri.parse(acrUrl),
+      headers: {
+        'Content-Type': 'text/turtle',
+        'Authorization': 'DPoP $accessToken',
+        'DPoP': dPopToken,
+      },
+      body: acrBody,
+    );
+
+    if (res.statusCode < 200 || res.statusCode > 204) {
+      throw Exception('Failed to write ACR: ${res.statusCode} ${res.body}');
+    } else {
+      debugPrint('ACR created/updated for $resourceUrl');
+    }
+  }
+
+  static String _generateAcr(
+    String ownerWebId, {
+    List<String>? allowReadWebIds,
+    List<String>? allowWriteWebIds,
+  }) {
+    final readList = allowReadWebIds ?? [];
+    final writeList = allowWriteWebIds ?? [];
+
+    final readMatchers = readList.map((id) => '<$id>').join(' ');
+    final writeMatchers = writeList.map((id) => '<$id>').join(' ');
+
+    return '''
+  @prefix acp: <http://www.w3.org/ns/solid/acp#>.
+  @prefix acl: <http://www.w3.org/ns/auth/acl#>.
+
+  <> a acp:AccessControlResource;
+    acp:accessControl <#ownerAccess>, <#sharedAccess>.
+
+  <#ownerAccess> a acp:AccessControl;
+    acp:apply <#ownerPolicy>.
+
+  <#ownerPolicy> a acp:Policy;
+    acp:allow acl:Read, acl:Write, acl:Control;
+    acp:anyOf ( <$ownerWebId/profile/card#me> ).
+
+  <#sharedAccess> a acp:AccessControl;
+    acp:apply <#sharedPolicy>.
+
+  <#sharedPolicy> a acp:Policy;
+    acp:allow ${readList.isNotEmpty ? 'acl:Read' : ''} ${writeList.isNotEmpty ? ', acl:Write' : ''};
+    acp:anyOf ( $readMatchers $writeMatchers ).
+  ''';
+  }
+
+
+
 }
+
+
+
