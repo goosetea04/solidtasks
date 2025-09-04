@@ -170,21 +170,27 @@ static Future<String?> _httpGetTextTurtle(String fullUrl) async {
         .where((f) => f.startsWith(_taskPrefix) && f.endsWith(_taskExt))
         .toSet();
 
-    // Write/update each task file
     for (final task in tasks) {
       final fileName = _fileNameForTask(task.id);
       final turtle = _taskToTurtle(task);
+
       debugPrint('Writing $fileName ...');
+
       final status = await writePod(
-        fileName, 
+        fileName,
         turtle,
         context,
         widget,
         encrypted: false,
       );
+
       debugPrint('Write $fileName status: $status');
-      if (status != SolidFunctionCallStatus.success) {
-        throw Exception('Failed to save $fileName. Status: $status');
+
+      if (status == SolidFunctionCallStatus.success) {
+        // 🔐 Write default ACR for this task
+        final ownerWebId = await currentWebId();
+        final fileUrl = '$fullDirPath$fileName';
+        await writeAcrForResource(fileUrl, ownerWebId);
       }
     }
 
@@ -408,39 +414,7 @@ static String _unescapeTurtleString(String s) {
       throw Exception('Delete failed: ${res.statusCode}');
     }
   }
-  // ACP IMPLEMENTATION EXPERIMENtal
-
-  static Future<void> _writeAcrForTask(
-    String taskFileUrl,
-    String ownerWebId,
-  ) async {
-    try {
-      final acrUrl = '$taskFileUrl.acr';
-      final acrBody = _defaultAcrForTask(ownerWebId);
-
-      final (:accessToken, :dPopToken) = await getTokensForResource(acrUrl, 'PUT');
-      final res = await http.put(
-        Uri.parse(acrUrl),
-        headers: {
-          'Content-Type': 'text/turtle',
-          'Authorization': 'DPoP $accessToken',
-          'DPoP': dPopToken,
-        },
-        body: acrBody,
-      );
-
-      if (res.statusCode == 201 ||
-          res.statusCode == 200 ||
-          res.statusCode == 204) {
-        debugPrint('ACR created/updated for $taskFileUrl');
-      } else {
-        debugPrint('Failed to write ACR for $taskFileUrl => ${res.statusCode} ${res.body}');
-      }
-    } catch (e) {
-      debugPrint('Error writing ACR for $taskFileUrl: $e');
-    } 
-  }
-
+  // ACP IMPLEMENTATION EXPERIMENTAL
   static Future<String?> fetchAcrForTask(String taskFileUrl) async {
     try {
       final acrUrl = '$taskFileUrl.acr';
@@ -492,21 +466,78 @@ static String _unescapeTurtleString(String s) {
     return '$webId$tasksDirRel${_taskPrefix}${taskId}${_taskExt}';
   }
 
-  /// Generates a default ACP policy: owner has full access.
-  static String _defaultAcrForTask(String ownerWebId) {
+
+  /// Write an ACR (Access Control Resource) for any Task resource.
+  static Future<void> writeAcrForResource(
+    String resourceUrl,
+    String ownerWebId, {
+    List<String>? allowReadWebIds,
+    List<String>? allowWriteWebIds,
+  }) async {
+    try {
+      final acrUrl = '$resourceUrl.acr';
+      final acrBody = _generateAcr(
+        ownerWebId,
+        allowReadWebIds: allowReadWebIds,
+        allowWriteWebIds: allowWriteWebIds,
+      );
+
+      final (:accessToken, :dPopToken) = await getTokensForResource(acrUrl, 'PUT');
+      final res = await http.put(
+        Uri.parse(acrUrl),
+        headers: {
+          'Content-Type': 'text/turtle',
+          'Authorization': 'DPoP $accessToken',
+          'DPoP': dPopToken,
+        },
+        body: acrBody,
+      );
+
+      if ([200, 201, 204, 205].contains(res.statusCode)) {
+        debugPrint('ACR created/updated for $resourceUrl');
+      } else {
+        debugPrint('Failed to write ACR for $resourceUrl => ${res.statusCode} ${res.body}');
+        throw Exception('Failed to write ACR: ${res.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('Error writing ACR for $resourceUrl: $e');
+      rethrow;
+    }
+  }
+
+  /// Generate an ACR body with owner + optional shared access.
+  static String _generateAcr(
+    String ownerWebId, {
+    List<String>? allowReadWebIds,
+    List<String>? allowWriteWebIds,
+  }) {
+    final readList = allowReadWebIds ?? [];
+    final writeList = allowWriteWebIds ?? [];
+
+    final readMatchers = readList.map((id) => '<$id>').join(' ');
+    final writeMatchers = writeList.map((id) => '<$id>').join(' ');
+
     return '''
   @prefix acp: <http://www.w3.org/ns/solid/acp#>.
   @prefix acl: <http://www.w3.org/ns/auth/acl#>.
 
   <> a acp:AccessControlResource;
-    acp:accessControl <#ownerAccess>.
+    acp:accessControl <#ownerAccess>, <#sharedAccess>.
 
   <#ownerAccess> a acp:AccessControl;
     acp:apply <#ownerPolicy>.
 
   <#ownerPolicy> a acp:Policy;
     acp:allow acl:Read, acl:Write, acl:Control;
-    acp:anyOf ( <${ownerWebId}profile/card#me> ).
+    acp:anyOf ( <$ownerWebId/profile/card#me> ).
+
+  <#sharedAccess> a acp:AccessControl;
+    acp:apply <#sharedPolicy>.
+
+  <#sharedPolicy> a acp:Policy;
+    ${readList.isNotEmpty ? 'acp:allow acl:Read;' : ''}
+    ${writeList.isNotEmpty ? 'acp:allow acl:Write;' : ''}
+    acp:anyOf ( $readMatchers $writeMatchers ).
   ''';
   }
 
