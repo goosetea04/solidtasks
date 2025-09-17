@@ -187,13 +187,28 @@ static Future<String?> _httpGetTextTurtle(String fullUrl) async {
       debugPrint('Write $fileName status: $status');
 
       if (status == SolidFunctionCallStatus.success) {
-        // 🔐 Write default ACR for this task
         final ownerWebId = await currentWebId();
         final fileUrl = '$fullDirPath$fileName';
-        await writeAcrForResource(fileUrl, ownerWebId);
-      }
-    }
 
+        // Generate preset ACR string
+        final collaboratorWebId = "https://pods.acp.solidcommunity.au/gooseacp1/profile/card#me.";
+        final acr = AclPresets.ownerPlusWrite(ownerWebId, collaboratorWebId);
+
+        // Put it manually
+        final acrUrl = '$fileUrl.acr';
+        final (:accessToken, :dPopToken) = await getTokensForResource(acrUrl, 'PUT');
+        await http.put(
+          Uri.parse(acrUrl),
+          headers: {
+            'Content-Type': 'text/turtle',
+            'Authorization': 'DPoP $accessToken',
+            'DPoP': dPopToken,
+          },
+          body: acr,
+        );
+      }
+
+    }
     debugPrint('Per-task sync complete.');
   }
 
@@ -510,12 +525,19 @@ static String _unescapeTurtleString(String s) {
     String ownerWebId, {
     List<String>? allowReadWebIds,
     List<String>? allowWriteWebIds,
+    List<String>? allowControlWebIds,
+    bool publicRead = false,
   }) {
     final readList = allowReadWebIds ?? [];
     final writeList = allowWriteWebIds ?? [];
+    final controlList = allowControlWebIds ?? [];
 
     final readMatchers = readList.map((id) => '<$id>').join(' ');
     final writeMatchers = writeList.map((id) => '<$id>').join(' ');
+    final controlMatchers = controlList.map((id) => '<$id>').join(' ');
+
+    // add public agent if publicRead is true
+    final publicAgent = publicRead ? '<http://www.w3.org/ns/solid/acp#PublicAgent>' : '';
 
     return '''
   @prefix acp: <http://www.w3.org/ns/solid/acp#>.
@@ -535,13 +557,46 @@ static String _unescapeTurtleString(String s) {
     acp:apply <#sharedPolicy>.
 
   <#sharedPolicy> a acp:Policy;
-    ${readList.isNotEmpty ? 'acp:allow acl:Read;' : ''}
+    ${readList.isNotEmpty || publicRead ? 'acp:allow acl:Read;' : ''}
     ${writeList.isNotEmpty ? 'acp:allow acl:Write;' : ''}
-    acp:anyOf ( $readMatchers $writeMatchers ).
+    ${controlList.isNotEmpty ? 'acp:allow acl:Control;' : ''}
+    acp:anyOf ( $readMatchers $writeMatchers $controlMatchers $publicAgent ).
   ''';
   }
 
 }
 
+/// Common reusable ACP policy presets.
+class AclPresets {
+  /// Owner only (private).
+  static String ownerOnly(String ownerWebId) => PodService._generateAcr(ownerWebId);
 
+  /// Owner + collaborator read.
+  static String ownerPlusRead(String ownerWebId, String collaboratorWebId) =>
+      PodService._generateAcr(
+        ownerWebId,
+        allowReadWebIds: [collaboratorWebId],
+      );
 
+  /// Owner + collaborator read/write.
+  static String ownerPlusWrite(String ownerWebId, String collaboratorWebId) =>
+      PodService._generateAcr(
+        ownerWebId,
+        allowReadWebIds: [collaboratorWebId],
+        allowWriteWebIds: [collaboratorWebId],
+      );
+
+  /// Owner + public read (world-readable).
+  static String publicRead(String ownerWebId) =>
+      PodService._generateAcr(ownerWebId, publicRead: true);
+
+  /// Team access (multiple collaborators).
+  static String teamAccess(String ownerWebId, List<String> teamWebIds) =>
+      PodService._generateAcr(
+        ownerWebId,
+        allowReadWebIds: teamWebIds,
+        allowWriteWebIds: teamWebIds,
+      );
+}
+
+ 

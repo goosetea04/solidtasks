@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:solidpod/solidpod.dart';
 import '../models/task.dart';
 import '../services/pod_service.dart';
+import '../services/pod_service_acp.dart';
 import '../models/sharedEntry.dart';
 
 /// Lists resources shared to the current WebID and lets you open/edit
@@ -118,7 +119,7 @@ class _SharedTasksPageState extends State<SharedTasksPage> {
 
                               // --- NEW: FutureBuilder to fetch ACP policies ---
                               FutureBuilder<String?>(
-                                future: PodService.fetchAcr(it.url),
+                                future: PodServiceAcp.fetchAcr(it.url),
                                 builder: (context, snapshot) {
                                   if (snapshot.connectionState == ConnectionState.waiting) {
                                     return const Text("Loading ACP...");
@@ -416,7 +417,7 @@ class _SharedTaskEditorPageState extends State<_SharedTaskEditorPage> {
     );
   }
 
-  // ---- TTL <-> Task helpers (matches your PodService format) ----
+  // ---- TTL <-> Task helpers (PodService format) ----
 
   dynamic _extractJsonFromTtl(String ttl) {
     final tripleDq = RegExp(r'"""(.*?)"""', dotAll: true);
