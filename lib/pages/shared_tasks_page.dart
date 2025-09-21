@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:solidpod/solidpod.dart';
 import '../models/task.dart';
 import '../services/pod_service.dart';
-import '../services/pod_service_acp.dart';
+import '../services/pod_service_acp.dart'; // Change this import
 import '../models/sharedEntry.dart';
 
 /// Lists resources shared to the current WebID and lets you open/edit
@@ -18,7 +18,6 @@ class _SharedTasksPageState extends State<SharedTasksPage> {
   bool _loading = true;
   String? _error;
   List<SharedEntry> _items = [];
-  
 
   @override
   void initState() {
@@ -34,9 +33,8 @@ class _SharedTasksPageState extends State<SharedTasksPage> {
     });
 
     try {
-      // Programmatically fetch “shared with me” resources.
+      // Programmatically fetch "shared with me" resources.
       final res = await sharedResources(context, widget);
-
       if (res is Map) {
         final entries = <SharedEntry>[];
         res.forEach((k, v) {
@@ -48,14 +46,13 @@ class _SharedTasksPageState extends State<SharedTasksPage> {
               url: url,
               ownerWebId: owner,
               permissionsRaw: perms,
-              // Lightweight hinting for “tasks”
+              // Lightweight hinting for "tasks"
               isLikelyTask: url.endsWith('.ttl') && url.contains('task_'),
             ));
           } catch (_) {
             // ignore malformed rows
           }
         });
-
         entries.sort((a, b) => a.name.compareTo(b.name));
         setState(() => _items = entries);
       } else {
@@ -116,10 +113,9 @@ class _SharedTasksPageState extends State<SharedTasksPage> {
                             children: [
                               Text(it.url, maxLines: 1, overflow: TextOverflow.ellipsis),
                               const SizedBox(height: 6),
-
-                              // --- NEW: FutureBuilder to fetch ACP policies ---
+                              // --- FIXED: Use AcpService.fetchAcr instead of PodServiceAcp.fetchAcr ---
                               FutureBuilder<String?>(
-                                future: PodServiceAcp.fetchAcr(it.url),
+                                future: AcpService.fetchAcr(it.url), // Fixed this line
                                 builder: (context, snapshot) {
                                   if (snapshot.connectionState == ConnectionState.waiting) {
                                     return const Text("Loading ACP...");
@@ -137,7 +133,6 @@ class _SharedTasksPageState extends State<SharedTasksPage> {
                                       ],
                                     );
                                   }
-
                                   final acr = snapshot.data!;
                                   final canReadACP = acr.contains('acl:Read');
                                   final canWriteACP = acr.contains('acl:Write');
@@ -156,7 +151,6 @@ class _SharedTasksPageState extends State<SharedTasksPage> {
                               ),
                             ],
                           ),
-
                           onTap: canRead
                               ? () {
                                   Navigator.push(
@@ -170,7 +164,7 @@ class _SharedTasksPageState extends State<SharedTasksPage> {
                                     ),
                                   );
                                 }
-                              : () => _snack('You do not have READ permission for this resource.'),
+                              : () => _snack('You do not have read permission for this resource.'),
                         );
                       },
                     ),
@@ -195,6 +189,7 @@ class _SharedTaskEditorPage extends StatefulWidget {
   final String resourceUrl;
   final String ownerWebId;
   final bool canWrite;
+
   const _SharedTaskEditorPage({
     Key? key,
     required this.resourceUrl,
@@ -211,6 +206,7 @@ class _SharedTaskEditorPageState extends State<_SharedTaskEditorPage> {
   bool _saving = false;
   String? _error;
   Task? _task;
+
   final _titleCtrl = TextEditingController();
   final _descCtrl = TextEditingController();
   DateTime? _dueDate;
@@ -243,6 +239,7 @@ class _SharedTaskEditorPageState extends State<_SharedTaskEditorPage> {
         setState(() => _error = 'Resource not found.');
         return;
       }
+
       final decoded = _extractJsonFromTtl(content as String? ?? '');
       if (decoded == null) {
         setState(() => _error = 'Could not parse task JSON from TTL.');
@@ -277,6 +274,7 @@ class _SharedTaskEditorPageState extends State<_SharedTaskEditorPage> {
     if (_task == null) return;
 
     setState(() => _saving = true);
+
     try {
       final updated = _task!.copyWith(
         title: _titleCtrl.text.trim(),
@@ -284,6 +282,7 @@ class _SharedTaskEditorPageState extends State<_SharedTaskEditorPage> {
         isDone: _isDone,
         description: _descCtrl.text.trim().isEmpty ? null : _descCtrl.text.trim(),
       );
+
       final ttl = _taskToTurtle(updated);
 
       // Use solidpod to write back to an external POD (owner is needed).
@@ -296,6 +295,7 @@ class _SharedTaskEditorPageState extends State<_SharedTaskEditorPage> {
       );
 
       if (!mounted) return;
+
       if (status == SolidFunctionCallStatus.success) {
         _task = updated;
         ScaffoldMessenger.of(context).showSnackBar(
@@ -329,7 +329,9 @@ class _SharedTaskEditorPageState extends State<_SharedTaskEditorPage> {
               tooltip: 'Save',
               icon: _saving
                   ? const SizedBox(
-                      width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2))
                   : const Icon(Icons.save),
               onPressed: _saving ? null : _save,
             ),
@@ -424,17 +426,27 @@ class _SharedTaskEditorPageState extends State<_SharedTaskEditorPage> {
     for (final m in tripleDq.allMatches(ttl)) {
       final payload = m.group(1);
       if (payload != null) {
-        try { return json.decode(payload.trim()); } catch (_) {}
+        try {
+          return json.decode(payload.trim());
+        } catch (_) {}
       }
     }
+
     int i = ttl.indexOf('{'), j = ttl.lastIndexOf('}');
     if (i != -1 && j > i) {
-      try { return json.decode(ttl.substring(i, j + 1)); } catch (_) {}
+      try {
+        return json.decode(ttl.substring(i, j + 1));
+      } catch (_) {}
     }
-    i = ttl.indexOf('['); j = ttl.lastIndexOf(']');
+
+    i = ttl.indexOf('[');
+    j = ttl.lastIndexOf(']');
     if (i != -1 && j > i) {
-      try { return json.decode(ttl.substring(i, j + 1)); } catch (_) {}
+      try {
+        return json.decode(ttl.substring(i, j + 1));
+      } catch (_) {}
     }
+
     return null;
   }
 
@@ -445,8 +457,8 @@ class _SharedTaskEditorPageState extends State<_SharedTaskEditorPage> {
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
 :task a solid:Resource ;
-    solid:content """$jsonStr""" ;
-    :lastUpdated "${DateTime.now().toIso8601String()}"^^xsd:dateTime .
+      solid:content """$jsonStr""" ;
+      :lastUpdated "${DateTime.now().toIso8601String()}"^^xsd:dateTime .
 ''';
   }
 }

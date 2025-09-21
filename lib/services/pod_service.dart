@@ -3,7 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:solidpod/solidpod.dart';
 import '../models/task.dart';
-import '../main.dart'; // Import for restartApp function
+import '../main.dart'; 
+import 'acp_service.dart';
 
 class PodService {
   static const String profCard = '/profile/card#me';
@@ -192,19 +193,12 @@ static Future<String?> _httpGetTextTurtle(String fullUrl) async {
 
         // Generate preset ACR string
         final collaboratorWebId = "https://pods.acp.solidcommunity.au/gooseacp1/profile/card#me.";
-        final acr = AclPresets.ownerPlusWrite(ownerWebId, collaboratorWebId);
 
-        // Put it manually
-        final acrUrl = '$fileUrl.acr';
-        final (:accessToken, :dPopToken) = await getTokensForResource(acrUrl, 'PUT');
-        await http.put(
-          Uri.parse(acrUrl),
-          headers: {
-            'Content-Type': 'text/turtle',
-            'Authorization': 'DPoP $accessToken',
-            'DPoP': dPopToken,
-          },
-          body: acr,
+        await AcpService.writeAcrForResource(
+          fileUrl,
+          ownerWebId,
+          allowReadWebIds: [collaboratorWebId],
+          allowWriteWebIds: [collaboratorWebId],
         );
       }
 
