@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:solidpod/solidpod.dart';
 import '../models/task.dart';
 import '../services/pod_service.dart';
-import '../services/pod_service_acp.dart'; // Change this import
+import '../services/pod_service_acp.dart';
 import '../models/sharedEntry.dart';
 
 /// Lists resources shared to the current WebID and lets you open/edit
@@ -115,7 +115,7 @@ class _SharedTasksPageState extends State<SharedTasksPage> {
                               const SizedBox(height: 6),
                               // --- FIXED: Use AcpService.fetchAcr instead of PodServiceAcp.fetchAcr ---
                               FutureBuilder<String?>(
-                                future: AcpService.fetchAcr(it.url), // Fixed this line
+                                future: AcpPresets.fetchAcr(it.url), // Fixed this line
                                 builder: (context, snapshot) {
                                   if (snapshot.connectionState == ConnectionState.waiting) {
                                     return const Text("Loading ACP...");
