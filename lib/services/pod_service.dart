@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:solidpod/solidpod.dart';
 import '../models/task.dart';
 import '../main.dart'; 
-import 'acp_service.dart';
+import 'pod_service_acp.dart';
 
 class PodService {
   static const String profCard = '/profile/card#me';
@@ -194,7 +194,7 @@ static Future<String?> _httpGetTextTurtle(String fullUrl) async {
         // Generate preset ACR string
         final collaboratorWebId = "https://pods.acp.solidcommunity.au/gooseacp1/profile/card#me.";
 
-        await AcpService.writeAcrForResource(
+        await AcpPresets.writeAcrForResource(
           fileUrl,
           ownerWebId,
           allowReadWebIds: [collaboratorWebId],
