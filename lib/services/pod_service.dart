@@ -3,7 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:solidpod/solidpod.dart';
 import '../models/task.dart';
-import '../main.dart'; // Import for restartApp function
+import '../main.dart'; 
+import 'pod_service_acp.dart';
 
 class PodService {
   static const String profCard = '/profile/card#me';
@@ -170,12 +171,12 @@ static Future<String?> _httpGetTextTurtle(String fullUrl) async {
         .where((f) => f.startsWith(_taskPrefix) && f.endsWith(_taskExt))
         .toSet();
 
-    // Write/update each task file
-
     for (final task in tasks) {
       final fileName = _fileNameForTask(task.id);
       final turtle = _taskToTurtle(task);
+
       debugPrint('Writing $fileName ...');
+
       final status = await writePod(
         fileName,
         turtle,
@@ -183,13 +184,24 @@ static Future<String?> _httpGetTextTurtle(String fullUrl) async {
         widget,
         encrypted: false,
       );
+
       debugPrint('Write $fileName status: $status');
+
       if (status == SolidFunctionCallStatus.success) {
-        // Write default ACR for this task
         final ownerWebId = await currentWebId();
         final fileUrl = '$fullDirPath$fileName';
-        await writeDefaultAcrForResource(fileUrl, ownerWebId);
+
+        // Generate preset ACR string
+        final collaboratorWebId = "https://pods.acp.solidcommunity.au/gooseacp1/profile/card#me.";
+
+        await AcpPresets.writeAcrForResource(
+          fileUrl,
+          ownerWebId,
+          allowReadWebIds: [collaboratorWebId],
+          allowWriteWebIds: [collaboratorWebId],
+        );
       }
+
     }
     debugPrint('Per-task sync complete.');
   }
@@ -411,40 +423,7 @@ static String _unescapeTurtleString(String s) {
       throw Exception('Delete failed: ${res.statusCode}');
     }
   }
-  
   // ACP IMPLEMENTATION EXPERIMENTAL
-
-  static Future<void> _writeAcrForTask(
-    String taskFileUrl,
-    String ownerWebId,
-  ) async {
-    try {
-      final acrUrl = '$taskFileUrl.acr';
-      final acrBody = _defaultAcrForTask(ownerWebId);
-
-      final (:accessToken, :dPopToken) = await getTokensForResource(acrUrl, 'PUT');
-      final res = await http.put(
-        Uri.parse(acrUrl),
-        headers: {
-          'Content-Type': 'text/turtle',
-          'Authorization': 'DPoP $accessToken',
-          'DPoP': dPopToken,
-        },
-        body: acrBody,
-      );
-
-      if (res.statusCode == 201 ||
-          res.statusCode == 200 ||
-          res.statusCode == 204) {
-        debugPrint('ACR created/updated for $taskFileUrl');
-      } else {
-        debugPrint('Failed to write ACR for $taskFileUrl => ${res.statusCode} ${res.body}');
-      }
-    } catch (e) {
-      debugPrint('Error writing ACR for $taskFileUrl: $e');
-    } 
-  }
-
   static Future<String?> fetchAcrForTask(String taskFileUrl) async {
     try {
       final acrUrl = '$taskFileUrl.acr';
@@ -496,65 +475,63 @@ static String _unescapeTurtleString(String s) {
     return '$webId$tasksDirRel${_taskPrefix}${taskId}${_taskExt}';
   }
 
-  /// Generates a default ACP policy: owner has full access.
-  static String _defaultAcrForTask(String ownerWebId) {
-    return '''
-  @prefix acp: <http://www.w3.org/ns/solid/acp#>.
-  @prefix acl: <http://www.w3.org/ns/auth/acl#>.
 
-  <> a acp:AccessControlResource;
-    acp:accessControl <#ownerAccess>.
-
-  <#ownerAccess> a acp:AccessControl;
-    acp:apply <#ownerPolicy>.
-
-  <#ownerPolicy> a acp:Policy;
-    acp:allow acl:Read, acl:Write, acl:Control;
-    acp:anyOf ( <${ownerWebId}profile/card#me> ).
-  ''';
-  }
-
-  static Future<void> writeDefaultAcrForResource(
+  /// Write an ACR (Access Control Resource) for any Task resource.
+  static Future<void> writeAcrForResource(
     String resourceUrl,
     String ownerWebId, {
     List<String>? allowReadWebIds,
     List<String>? allowWriteWebIds,
   }) async {
-    final acrUrl = '$resourceUrl.acr';
-    final acrBody = _generateAcr(
-      ownerWebId,
-      allowReadWebIds: allowReadWebIds,
-      allowWriteWebIds: allowWriteWebIds,
-    );
+    try {
+      final acrUrl = '$resourceUrl.acr';
+      final acrBody = _generateAcr(
+        ownerWebId,
+        allowReadWebIds: allowReadWebIds,
+        allowWriteWebIds: allowWriteWebIds,
+      );
 
-    final (:accessToken, :dPopToken) = await getTokensForResource(acrUrl, 'PUT');
-    final res = await http.put(
-      Uri.parse(acrUrl),
-      headers: {
-        'Content-Type': 'text/turtle',
-        'Authorization': 'DPoP $accessToken',
-        'DPoP': dPopToken,
-      },
-      body: acrBody,
-    );
+      final (:accessToken, :dPopToken) = await getTokensForResource(acrUrl, 'PUT');
+      final res = await http.put(
+        Uri.parse(acrUrl),
+        headers: {
+          'Content-Type': 'text/turtle',
+          'Authorization': 'DPoP $accessToken',
+          'DPoP': dPopToken,
+        },
+        body: acrBody,
+      );
 
-    if (res.statusCode < 200 || res.statusCode > 204) {
-      throw Exception('Failed to write ACR: ${res.statusCode} ${res.body}');
-    } else {
-      debugPrint('ACR created/updated for $resourceUrl');
+      if ([200, 201, 204, 205].contains(res.statusCode)) {
+        debugPrint('ACR created/updated for $resourceUrl');
+      } else {
+        debugPrint('Failed to write ACR for $resourceUrl => ${res.statusCode} ${res.body}');
+        throw Exception('Failed to write ACR: ${res.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('Error writing ACR for $resourceUrl: $e');
+      rethrow;
     }
   }
 
+  /// Generate an ACR body with owner + optional shared access.
   static String _generateAcr(
     String ownerWebId, {
     List<String>? allowReadWebIds,
     List<String>? allowWriteWebIds,
+    List<String>? allowControlWebIds,
+    bool publicRead = false,
   }) {
     final readList = allowReadWebIds ?? [];
     final writeList = allowWriteWebIds ?? [];
+    final controlList = allowControlWebIds ?? [];
 
     final readMatchers = readList.map((id) => '<$id>').join(' ');
     final writeMatchers = writeList.map((id) => '<$id>').join(' ');
+    final controlMatchers = controlList.map((id) => '<$id>').join(' ');
+
+    // add public agent if publicRead is true
+    final publicAgent = publicRead ? '<http://www.w3.org/ns/solid/acp#PublicAgent>' : '';
 
     return '''
   @prefix acp: <http://www.w3.org/ns/solid/acp#>.
@@ -574,14 +551,46 @@ static String _unescapeTurtleString(String s) {
     acp:apply <#sharedPolicy>.
 
   <#sharedPolicy> a acp:Policy;
-    acp:allow ${readList.isNotEmpty ? 'acl:Read' : ''} ${writeList.isNotEmpty ? ', acl:Write' : ''};
-    acp:anyOf ( $readMatchers $writeMatchers ).
+    ${readList.isNotEmpty || publicRead ? 'acp:allow acl:Read;' : ''}
+    ${writeList.isNotEmpty ? 'acp:allow acl:Write;' : ''}
+    ${controlList.isNotEmpty ? 'acp:allow acl:Control;' : ''}
+    acp:anyOf ( $readMatchers $writeMatchers $controlMatchers $publicAgent ).
   ''';
   }
 
-
-
 }
 
+/// Common reusable ACP policy presets.
+class AclPresets {
+  /// Owner only (private).
+  static String ownerOnly(String ownerWebId) => PodService._generateAcr(ownerWebId);
 
+  /// Owner + collaborator read.
+  static String ownerPlusRead(String ownerWebId, String collaboratorWebId) =>
+      PodService._generateAcr(
+        ownerWebId,
+        allowReadWebIds: [collaboratorWebId],
+      );
 
+  /// Owner + collaborator read/write.
+  static String ownerPlusWrite(String ownerWebId, String collaboratorWebId) =>
+      PodService._generateAcr(
+        ownerWebId,
+        allowReadWebIds: [collaboratorWebId],
+        allowWriteWebIds: [collaboratorWebId],
+      );
+
+  /// Owner + public read (world-readable).
+  static String publicRead(String ownerWebId) =>
+      PodService._generateAcr(ownerWebId, publicRead: true);
+
+  /// Team access (multiple collaborators).
+  static String teamAccess(String ownerWebId, List<String> teamWebIds) =>
+      PodService._generateAcr(
+        ownerWebId,
+        allowReadWebIds: teamWebIds,
+        allowWriteWebIds: teamWebIds,
+      );
+}
+
+ 
