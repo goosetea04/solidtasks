@@ -6,6 +6,7 @@ class Task {
   String? description;
   DateTime createdAt;
   DateTime updatedAt;
+  bool? completed; // For compatibility with some APIs
 
   Task({
     required this.id,

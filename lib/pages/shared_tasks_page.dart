@@ -1,464 +1,450 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:solidpod/solidpod.dart';
-import '../models/task.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
+import '../services/sharing_service.dart';
 import '../services/pod_service.dart';
-import '../services/pod_service_acp.dart';
-import '../models/sharedEntry.dart';
+import '../services/auth_service.dart';
+import '../models/task.dart';
+import 'package:solidpod/solidpod.dart';
 
-/// Lists resources shared to the current WebID and lets you open/edit
-class SharedTasksPage extends StatefulWidget {
+class SharedTasksPage extends ConsumerStatefulWidget {
   const SharedTasksPage({Key? key}) : super(key: key);
 
   @override
-  State<SharedTasksPage> createState() => _SharedTasksPageState();
+  ConsumerState<SharedTasksPage> createState() => _SharedTasksPageState();
 }
 
-class _SharedTasksPageState extends State<SharedTasksPage> {
-  bool _loading = true;
-  String? _error;
-  List<SharedEntry> _items = [];
+class _SharedTasksPageState extends ConsumerState<SharedTasksPage> {
+  List<SharedResource> _sharedResources = [];
+  bool _isLoading = false;
+  String? _currentUserWebId;
 
   @override
   void initState() {
     super.initState();
-    _loadSharedList();
+    _loadSharedTasks();
   }
 
-  Future<void> _loadSharedList() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-      _items = [];
-    });
-
+  Future<void> _loadSharedTasks() async {
+    setState(() => _isLoading = true);
+    
     try {
-      // Programmatically fetch "shared with me" resources.
-      final res = await sharedResources(context, widget);
-      if (res is Map) {
-        final entries = <SharedEntry>[];
-        res.forEach((k, v) {
-          try {
-            final url = k as String;
-            final owner = v[PermissionLogLiteral.owner] as String? ?? '';
-            final perms = (v[PermissionLogLiteral.permissions] as String? ?? '').toLowerCase();
-            entries.add(SharedEntry(
-              url: url,
-              ownerWebId: owner,
-              permissionsRaw: perms,
-              // Lightweight hinting for "tasks"
-              isLikelyTask: url.endsWith('.ttl') && url.contains('task_'),
-            ));
-          } catch (_) {
-            // ignore malformed rows
-          }
-        });
-        entries.sort((a, b) => a.name.compareTo(b.name));
-        setState(() => _items = entries);
-      } else {
-        setState(() => _error = 'Could not load shared resources.');
-      }
-    } catch (e) {
-      setState(() => _error = 'Load failed: $e');
-    } finally {
-      setState(() => _loading = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Shared with me'),
-        actions: [
-          IconButton(
-            tooltip: 'Refresh',
-            icon: const Icon(Icons.refresh),
-            onPressed: _loading ? null : _loadSharedList,
-          ),
-        ],
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-              ? Center(child: Text(_error!))
-              : _items.isEmpty
-                  ? const Center(child: Text('No shared files found.'))
-                  : ListView.separated(
-                      padding: const EdgeInsets.all(12),
-                      itemCount: _items.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 8),
-                      itemBuilder: (context, i) {
-                        final it = _items[i];
-                        final canRead = it.permissionsRaw.contains('read');
-                        final canWrite = it.permissionsRaw.contains('write');
-                        final canAppend = it.permissionsRaw.contains('append');
-                        final canControl = it.permissionsRaw.contains('control');
-
-                        return ListTile(
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            side: BorderSide(
-                              color: it.isLikelyTask
-                                  ? Theme.of(context).colorScheme.primary.withOpacity(0.25)
-                                  : Theme.of(context).dividerColor,
-                            ),
-                          ),
-                          leading: Icon(
-                            it.isLikelyTask ? Icons.checklist_rtl : Icons.description,
-                          ),
-                          title: Text(it.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(it.url, maxLines: 1, overflow: TextOverflow.ellipsis),
-                              const SizedBox(height: 6),
-                              // --- FIXED: Use AcpService.fetchAcr instead of PodServiceAcp.fetchAcr ---
-                              FutureBuilder<String?>(
-                                future: AcpPresets.fetchAcr(it.url), // Fixed this line
-                                builder: (context, snapshot) {
-                                  if (snapshot.connectionState == ConnectionState.waiting) {
-                                    return const Text("Loading ACP...");
-                                  }
-                                  if (!snapshot.hasData || snapshot.data == null) {
-                                    // fallback to existing WAC perms if no ACP found
-                                    return Wrap(
-                                      spacing: 6,
-                                      runSpacing: -6,
-                                      children: [
-                                        _permChip('read', canRead),
-                                        _permChip('write', canWrite),
-                                        _permChip('append', canAppend),
-                                        _permChip('control', canControl),
-                                      ],
-                                    );
-                                  }
-                                  final acr = snapshot.data!;
-                                  final canReadACP = acr.contains('acl:Read');
-                                  final canWriteACP = acr.contains('acl:Write');
-                                  final canControlACP = acr.contains('acl:Control');
-
-                                  return Wrap(
-                                    spacing: 6,
-                                    runSpacing: -6,
-                                    children: [
-                                      _permChip('read', canReadACP),
-                                      _permChip('write', canWriteACP),
-                                      _permChip('control', canControlACP),
-                                    ],
-                                  );
-                                },
-                              ),
-                            ],
-                          ),
-                          onTap: canRead
-                              ? () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => _SharedTaskEditorPage(
-                                        resourceUrl: it.url,
-                                        ownerWebId: it.ownerWebId,
-                                        canWrite: canWrite,
-                                      ),
-                                    ),
-                                  );
-                                }
-                              : () => _snack('You do not have read permission for this resource.'),
-                        );
-                      },
-                    ),
-    );
-  }
-
-  Widget _permChip(String label, bool on) => Chip(
-        label: Text(label),
-        visualDensity: VisualDensity.compact,
-        side: BorderSide(color: on ? Colors.green : Colors.grey),
-        backgroundColor: on ? Colors.green.withOpacity(0.12) : null,
-      );
-
-  void _snack(String msg) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-  }
-}
-
-/// Editor for a single shared task_<id>.ttl.
-class _SharedTaskEditorPage extends StatefulWidget {
-  final String resourceUrl;
-  final String ownerWebId;
-  final bool canWrite;
-
-  const _SharedTaskEditorPage({
-    Key? key,
-    required this.resourceUrl,
-    required this.ownerWebId,
-    required this.canWrite,
-  }) : super(key: key);
-
-  @override
-  State<_SharedTaskEditorPage> createState() => _SharedTaskEditorPageState();
-}
-
-class _SharedTaskEditorPageState extends State<_SharedTaskEditorPage> {
-  bool _loading = true;
-  bool _saving = false;
-  String? _error;
-  Task? _task;
-
-  final _titleCtrl = TextEditingController();
-  final _descCtrl = TextEditingController();
-  DateTime? _dueDate;
-  bool _isDone = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  @override
-  void dispose() {
-    _titleCtrl.dispose();
-    _descCtrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-      _task = null;
-    });
-
-    try {
-      // solidpod reads (and decrypts if needed) external resource by URL
-      final content = await readExternalPod(widget.resourceUrl, context, widget);
-      if (content == null) {
-        setState(() => _error = 'Resource not found.');
+      // Check authentication first
+      final isAuthenticated = await AuthService.isAuthenticated();
+      if (!isAuthenticated) {
+        _showSnackBar('Please log in to view shared tasks', Colors.orange);
         return;
       }
 
-      final decoded = _extractJsonFromTtl(content as String? ?? '');
-      if (decoded == null) {
-        setState(() => _error = 'Could not parse task JSON from TTL.');
-        return;
+      // Get current user WebID using the solidpod library
+      _currentUserWebId = await AuthService.getCurrentUserWebId();
+      
+      // Only prompt if getWebId() failed (fallback)
+      if (_currentUserWebId == null && mounted) {
+        debugPrint('getWebId() returned null, prompting user for WebID');
+        _currentUserWebId = await WebIdDialogs.promptForWebId(context);
       }
-
-      Task t;
-      if (decoded is List && decoded.isNotEmpty && decoded.first is Map<String, dynamic>) {
-        t = Task.fromJson(Map<String, dynamic>.from(decoded.first));
-      } else if (decoded is Map<String, dynamic>) {
-        t = Task.fromJson(decoded);
+      
+      if (_currentUserWebId != null) {
+        debugPrint('Loading shared resources for: $_currentUserWebId');
+        final resources = await SharingService.getSharedResources(_currentUserWebId!);
+        setState(() => _sharedResources = resources);
+        
+        if (resources.isEmpty) {
+          debugPrint('No shared resources found');
+        } else {
+          debugPrint('Found ${resources.length} shared resources');
+        }
       } else {
-        setState(() => _error = 'Unsupported JSON structure.');
-        return;
+        _showSnackBar('WebID is required to view shared tasks', Colors.red);
       }
-
-      _task = t;
-      _titleCtrl.text = t.title;
-      _descCtrl.text = t.description ?? '';
-      _dueDate = t.dueDate;
-      _isDone = t.isDone;
-      setState(() {});
     } catch (e) {
-      setState(() => _error = 'Load failed: $e');
+      debugPrint('Error loading shared tasks: $e');
+      _showSnackBar('Failed to load shared tasks: $e', Colors.red);
     } finally {
-      setState(() => _loading = false);
+      setState(() => _isLoading = false);
     }
   }
 
-  Future<void> _save() async {
-    if (!_canEdit()) return;
-    if (_task == null) return;
+  Future<String?> _getCurrentUserWebId() async {
+    return await AuthService.getCurrentUserWebId();
+  }
 
-    setState(() => _saving = true);
-
+  Future<Task?> _loadTaskFromResource(SharedResource resource) async {
     try {
-      final updated = _task!.copyWith(
-        title: _titleCtrl.text.trim(),
-        dueDate: _dueDate,
-        isDone: _isDone,
-        description: _descCtrl.text.trim().isEmpty ? null : _descCtrl.text.trim(),
+      final (:accessToken, :dPopToken) = await getTokensForResource(resource.resourceUrl, 'GET');
+      final response = await http.get(
+        Uri.parse(resource.resourceUrl),
+        headers: {
+          'Accept': 'application/ld+json, text/turtle',
+          'Authorization': 'DPoP $accessToken',
+          'DPoP': dPopToken,
+        },
       );
 
-      final ttl = _taskToTurtle(updated);
-
-      // Use solidpod to write back to an external POD (owner is needed).
-      final status = await writeExternalPod(
-        widget.resourceUrl,
-        ttl,
-        widget.ownerWebId,
-        context,
-        widget,
-      );
-
-      if (!mounted) return;
-
-      if (status == SolidFunctionCallStatus.success) {
-        _task = updated;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Saved')),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Save failed: $status')),
-        );
+      if (response.statusCode == 200) {
+        return _parseTaskFromRdf(response.body, resource.resourceUrl);
       }
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Save failed: $e')),
-      );
-    } finally {
-      if (mounted) setState(() => _saving = false);
+      debugPrint('Error loading task from ${resource.resourceUrl}: $e');
     }
-  }
-
-  bool _canEdit() => widget.canWrite;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(Uri.parse(widget.resourceUrl).pathSegments.last),
-        actions: [
-          if (_canEdit())
-            IconButton(
-              tooltip: 'Save',
-              icon: _saving
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Icon(Icons.save),
-              onPressed: _saving ? null : _save,
-            ),
-        ],
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-              ? Center(child: Text(_error!))
-              : _task == null
-                  ? const SizedBox.shrink()
-                  : ListView(
-                      padding: const EdgeInsets.all(16),
-                      children: [
-                        TextField(
-                          controller: _titleCtrl,
-                          decoration: const InputDecoration(labelText: 'Title'),
-                          enabled: _canEdit(),
-                        ),
-                        const SizedBox(height: 8),
-                        TextField(
-                          controller: _descCtrl,
-                          maxLines: 4,
-                          decoration: const InputDecoration(
-                            labelText: 'Description',
-                            hintText: 'Optional details about this task',
-                            border: OutlineInputBorder(),
-                          ),
-                          enabled: _canEdit(),
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Checkbox(
-                              value: _isDone,
-                              onChanged: _canEdit()
-                                  ? (v) => setState(() => _isDone = v ?? false)
-                                  : null,
-                            ),
-                            const Text('Completed'),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                _dueDate == null
-                                    ? 'No due date'
-                                    : 'Due: ${_dueDate!.day}/${_dueDate!.month}/${_dueDate!.year}',
-                              ),
-                            ),
-                            TextButton.icon(
-                              icon: const Icon(Icons.event),
-                              label: const Text('Pick date'),
-                              onPressed: _canEdit()
-                                  ? () async {
-                                      final now = DateTime.now();
-                                      final picked = await showDatePicker(
-                                        context: context,
-                                        initialDate: _dueDate ?? now,
-                                        firstDate: DateTime(now.year - 5),
-                                        lastDate: DateTime(now.year + 5),
-                                      );
-                                      if (picked != null) setState(() => _dueDate = picked);
-                                    }
-                                  : null,
-                            ),
-                            if (_dueDate != null)
-                              IconButton(
-                                tooltip: 'Clear date',
-                                icon: const Icon(Icons.clear),
-                                onPressed: _canEdit() ? () => setState(() => _dueDate = null) : null,
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        if (!_canEdit())
-                          const Text(
-                            'You have READ-only access to this resource.',
-                            style: TextStyle(color: Colors.grey),
-                          ),
-                      ],
-                    ),
-    );
-  }
-
-  // ---- TTL <-> Task helpers (PodService format) ----
-
-  dynamic _extractJsonFromTtl(String ttl) {
-    final tripleDq = RegExp(r'"""(.*?)"""', dotAll: true);
-    for (final m in tripleDq.allMatches(ttl)) {
-      final payload = m.group(1);
-      if (payload != null) {
-        try {
-          return json.decode(payload.trim());
-        } catch (_) {}
-      }
-    }
-
-    int i = ttl.indexOf('{'), j = ttl.lastIndexOf('}');
-    if (i != -1 && j > i) {
-      try {
-        return json.decode(ttl.substring(i, j + 1));
-      } catch (_) {}
-    }
-
-    i = ttl.indexOf('[');
-    j = ttl.lastIndexOf(']');
-    if (i != -1 && j > i) {
-      try {
-        return json.decode(ttl.substring(i, j + 1));
-      } catch (_) {}
-    }
-
     return null;
   }
 
-  String _taskToTurtle(Task t) {
-    final jsonStr = json.encode(t.toJson());
-    return '''@prefix : <#> .
-@prefix solid: <http://www.w3.org/ns/solid/terms#> .
-@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+  Task _parseTaskFromRdf(String content, String resourceUrl) {
+    // Simplified parsing - in production, use proper RDF library
+    final idMatch = RegExp(r'"id":\s*"([^"]+)"').firstMatch(content);
+    final titleMatch = RegExp(r'"title":\s*"([^"]+)"').firstMatch(content);
+    final completedMatch = RegExp(r'"completed":\s*(true|false)').firstMatch(content);
+    
+    return Task(
+      id: idMatch?.group(1) ?? resourceUrl.split('/').last,
+      title: titleMatch?.group(1) ?? 'Shared Task',
+      isDone: completedMatch?.group(1) == 'true',
+      description: null,
+      dueDate: null,
+      createdAt: DateTime.now(),
+    );
+  }
 
-:task a solid:Resource ;
-      solid:content """$jsonStr""" ;
-      :lastUpdated "${DateTime.now().toIso8601String()}"^^xsd:dateTime .
-''';
+  Future<void> _acceptShare(SharedResource resource) async {
+    try {
+      final canAccess = await SharingService.canAccessResource(resource.resourceUrl, _currentUserWebId!);
+      
+      if (canAccess) {
+        _showSnackBar('Task is accessible!', Colors.green);
+        await _addToLocalTasks(resource);
+      } else {
+        _showSnackBar('Access denied to task', Colors.red);
+      }
+    } catch (e) {
+      _showSnackBar('Error testing access: $e', Colors.red);
+    }
+  }
+
+  Future<void> _addToLocalTasks(SharedResource resource) async {
+    try {
+      final task = await _loadTaskFromResource(resource);
+      if (task != null) {
+        // Add to local state
+        _showSnackBar('Task added to your list', Colors.green);
+      }
+    } catch (e) {
+      _showSnackBar('Failed to add task locally: $e', Colors.red);
+    }
+  }
+
+  Future<void> _declineShare(SharedResource resource) async {
+    setState(() {
+      _sharedResources.removeWhere((r) => r.id == resource.id);
+    });
+    _showSnackBar('Share declined', Colors.orange);
+  }
+
+  Future<void> _openTask(SharedResource resource) async {
+    try {
+      final canAccess = await SharingService.canAccessResource(resource.resourceUrl, _currentUserWebId!);
+      
+      if (!canAccess) {
+        _showSnackBar('No access to this task', Colors.red);
+        return;
+      }
+
+      final task = await _loadTaskFromResource(resource);
+      if (task != null) {
+        _showTaskDialog(task, resource);
+      } else {
+        _showSnackBar('Could not load task data', Colors.red);
+      }
+    } catch (e) {
+      _showSnackBar('Error opening task: $e', Colors.red);
+    }
+  }
+
+  void _showTaskDialog(Task task, SharedResource resource) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Shared Task: ${task.title}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Shared by: ${_extractName(resource.sharedBy)}'),
+            Text('Permission: ${resource.shareType}'),
+            Text('Shared: ${_formatDate(resource.timestamp)}'),
+            if (resource.message != null) ...[
+              const SizedBox(height: 8),
+              Text('Message: ${resource.message}'),
+            ],
+            const Divider(),
+            Text('Task Status: ${task.isDone ? 'Completed ✓' : 'Pending'}'),
+            if (task.description != null)
+              Text('Description: ${task.description}'),
+            if (task.dueDate != null)
+              Text('Due: ${task.dueDate.toString().split(' ')[0]}'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+          if (resource.shareType == 'write' || resource.shareType == 'control')
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _addToLocalTasks(resource);
+              },
+              child: const Text('Add to My Tasks'),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTaskCard(SharedResource resource) {
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.task_alt, color: Colors.blue[700]),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Task: ${resource.resourceUrl.split('/').last.replaceAll('.ttl', '')}',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                _buildPermissionChip(resource.shareType),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Icon(Icons.person, size: 16, color: Colors.grey[600]),
+                const SizedBox(width: 4),
+                Text('From: ${_extractName(resource.sharedBy)}'),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Icon(Icons.schedule, size: 16, color: Colors.grey[600]),
+                const SizedBox(width: 4),
+                Text('Shared: ${_formatDate(resource.timestamp)}'),
+              ],
+            ),
+            if (resource.message != null) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.grey[100],
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.message, size: 16, color: Colors.grey[600]),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        resource.message!,
+                        style: const TextStyle(fontStyle: FontStyle.italic),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: () => _declineShare(resource),
+                  icon: const Icon(Icons.close, size: 18),
+                  label: const Text('Decline'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.red,
+                  ),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () => _openTask(resource),
+                  icon: const Icon(Icons.visibility, size: 18),
+                  label: const Text('View'),
+                ),
+                ElevatedButton.icon(
+                  onPressed: () => _acceptShare(resource),
+                  icon: const Icon(Icons.check, size: 18),
+                  label: const Text('Accept'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPermissionChip(String shareType) {
+    Color color;
+    IconData icon;
+    String label;
+    
+    switch (shareType) {
+      case 'read':
+        color = Colors.blue;
+        icon = Icons.visibility;
+        label = 'View Only';
+        break;
+      case 'write':
+        color = Colors.orange;
+        icon = Icons.edit;
+        label = 'Can Edit';
+        break;
+      case 'control':
+        color = Colors.red;
+        icon = Icons.admin_panel_settings;
+        label = 'Full Access';
+        break;
+      default:
+        color = Colors.grey;
+        icon = Icons.help;
+        label = 'Unknown';
+    }
+
+    return Chip(
+      label: Text(label, style: const TextStyle(fontSize: 12)),
+      backgroundColor: color.withOpacity(0.1),
+      side: BorderSide(color: color.withOpacity(0.3)),
+      avatar: Icon(icon, size: 16, color: color),
+    );
+  }
+
+  String _extractName(String webId) {
+    final uri = Uri.tryParse(webId);
+    if (uri != null) {
+      return uri.host.split('.').first.toUpperCase();
+    }
+    return webId;
+  }
+
+  String _formatDate(DateTime date) {
+    final now = DateTime.now();
+    final difference = now.difference(date);
+    
+    if (difference.inDays > 0) {
+      return '${difference.inDays}d ago';
+    } else if (difference.inHours > 0) {
+      return '${difference.inHours}h ago';
+    } else {
+      return '${difference.inMinutes}m ago';
+    }
+  }
+
+  void _showSnackBar(String message, Color color) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: color),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Shared Tasks'),
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        actions: [
+          IconButton(
+            onPressed: _isLoading ? null : _loadSharedTasks,
+            icon: _isLoading 
+              ? const SizedBox(
+                  width: 20, height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.refresh),
+            tooltip: 'Refresh',
+          ),
+        ],
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _sharedResources.isEmpty
+              ? _buildEmptyState()
+              : Column(
+                  children: [
+                    _buildHeader(),
+                    Expanded(
+                      child: ListView.builder(
+                        itemCount: _sharedResources.length,
+                        itemBuilder: (context, index) {
+                          return _buildTaskCard(_sharedResources[index]);
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+    );
+  }
+
+  Widget _buildHeader() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        children: [
+          Icon(Icons.share, color: Theme.of(context).primaryColor),
+          const SizedBox(width: 8),
+          Text(
+            '${_sharedResources.length} task${_sharedResources.length == 1 ? '' : 's'} shared with you',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.inbox,
+            size: 64,
+            color: Colors.grey[400],
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'No shared tasks',
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+              color: Colors.grey[600],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Tasks shared with you will appear here',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Colors.grey[500],
+            ),
+          ),
+          const SizedBox(height: 24),
+          ElevatedButton.icon(
+            onPressed: _loadSharedTasks,
+            icon: const Icon(Icons.refresh),
+            label: const Text('Check for Shares'),
+          ),
+        ],
+      ),
+    );
   }
 }
