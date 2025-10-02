@@ -5,8 +5,7 @@ class Task {
   DateTime? dueDate;
   String? description;
   DateTime createdAt;
-  DateTime updatedAt;
-  bool? completed; // For compatibility with some APIs
+  DateTime updatedAt; 
 
   Task({
     required this.id,

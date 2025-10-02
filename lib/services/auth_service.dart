@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:solidpod/solidpod.dart';
 
 class AuthService {
-  /// Get the current authenticated user's WebID using the solidpod library
+  // Get the current authenticated user's WebID using the solidpod library
   static Future<String?> getCurrentUserWebId() async {
     try {
       // Use the actual solidpod getWebId function
@@ -62,9 +62,9 @@ class AuthService {
   }
 }
 
-/// UI Helper functions for WebID management
+// UI Helper functions for WebID management
 class WebIdDialogs {
-  /// Prompt user for their WebID (fallback if getWebId() fails)
+  // Prompt user for their WebID (fallback if getWebId() fails)
   static Future<String?> promptForWebId(BuildContext context) async {
     final controller = TextEditingController();
     
@@ -81,7 +81,7 @@ class WebIdDialogs {
               controller: controller,
               decoration: const InputDecoration(
                 labelText: 'WebID',
-                hintText: 'https://yourname.solidcommunity.net/profile/card#me',
+                hintText: 'https://pods.acp.solidcommunity.au/profile/card#me',
               ),
             ),
           ],

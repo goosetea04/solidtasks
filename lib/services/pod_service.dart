@@ -5,6 +5,7 @@ import 'package:solidpod/solidpod.dart';
 import '../models/task.dart';
 import '../main.dart'; 
 import 'pod_service_acp.dart';
+import 'permission_log_service.dart';
 
 class PodService {
   static const String profCard = '/profile/card#me';
@@ -192,13 +193,22 @@ static Future<String?> _httpGetTextTurtle(String fullUrl) async {
         final fileUrl = '$fullDirPath$fileName';
 
         // Generate preset ACR string
-        final collaboratorWebId = "https://pods.acp.solidcommunity.au/gooseacp1/profile/card#me.";
+        final collaboratorWebId = "https://pods.acp.solidcommunity.au/gooseacp1/profile/card#me";
 
         await AcpPresets.writeAcrForResource(
           fileUrl,
           ownerWebId,
           allowReadWebIds: [collaboratorWebId],
           allowWriteWebIds: [collaboratorWebId],
+        );
+        await PermissionLogService.logPermissionChange(
+          resourceUrl: fileUrl,
+          ownerWebId: ownerWebId,
+          granterWebId: ownerWebId,
+          recipientWebId: collaboratorWebId,
+          permissionList: ['read', 'write'],
+          permissionType: 'grant',
+          acpPattern: 'basic',
         );
       }
 
@@ -559,38 +569,3 @@ static String _unescapeTurtleString(String s) {
   }
 
 }
-
-/// Common reusable ACP policy presets.
-class AclPresets {
-  /// Owner only (private).
-  static String ownerOnly(String ownerWebId) => PodService._generateAcr(ownerWebId);
-
-  /// Owner + collaborator read.
-  static String ownerPlusRead(String ownerWebId, String collaboratorWebId) =>
-      PodService._generateAcr(
-        ownerWebId,
-        allowReadWebIds: [collaboratorWebId],
-      );
-
-  /// Owner + collaborator read/write.
-  static String ownerPlusWrite(String ownerWebId, String collaboratorWebId) =>
-      PodService._generateAcr(
-        ownerWebId,
-        allowReadWebIds: [collaboratorWebId],
-        allowWriteWebIds: [collaboratorWebId],
-      );
-
-  /// Owner + public read (world-readable).
-  static String publicRead(String ownerWebId) =>
-      PodService._generateAcr(ownerWebId, publicRead: true);
-
-  /// Team access (multiple collaborators).
-  static String teamAccess(String ownerWebId, List<String> teamWebIds) =>
-      PodService._generateAcr(
-        ownerWebId,
-        allowReadWebIds: teamWebIds,
-        allowWriteWebIds: teamWebIds,
-      );
-}
-
- 

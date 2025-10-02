@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:solidpod/solidpod.dart';
 import 'pod_service_acp.dart';
+import 'auth_service.dart';
+import 'permission_log_service.dart';
 
 class SharingService {
   /// Share a resource with another user by creating both ACP and notification
@@ -9,16 +11,36 @@ class SharingService {
     required String resourceUrl,
     required String ownerWebId,
     required String recipientWebId,
-    required String shareType, // 'read', 'write', 'control'
+    required String shareType, // 'read', 'write', 'control', 'append'
     String? message,
-    String? acpPattern = 'basic', // 'basic', 'app_scoped', 'time_limited', etc.
+    String? acpPattern = 'basic',
     Map<String, dynamic>? acpOptions,
   }) async {
     try {
-      // 1. Apply ACP policy based on pattern
-      await _applyAcpPattern(resourceUrl, ownerWebId, recipientWebId, shareType, acpPattern, acpOptions);
+      // Apply ACP policy based on pattern
+      await _applyAcpPattern(
+        resourceUrl, 
+        ownerWebId, 
+        recipientWebId, 
+        shareType, 
+        acpPattern, 
+        acpOptions,
+      );
       
-      // 2. Send sharing notification to recipient
+      // Log the permission change
+      final currentUserWebId = await AuthService.getCurrentUserWebId();
+      await PermissionLogService.logPermissionChange(
+        resourceUrl: resourceUrl,
+        ownerWebId: ownerWebId,
+        granterWebId: currentUserWebId ?? ownerWebId,
+        recipientWebId: recipientWebId,
+        permissionList: [shareType],
+        permissionType: 'grant',
+        acpPattern: acpPattern,
+        expiryDate: acpOptions?['validUntil'],
+      );
+      
+      // Send sharing notification to recipient
       await _sendSharingNotification(
         ownerWebId: ownerWebId,
         recipientWebId: recipientWebId,
@@ -27,7 +49,7 @@ class SharingService {
         message: message,
       );
       
-      // 3. Log the share in owner's outgoing shares
+      // Log the share in owner's outgoing shares
       await _logOutgoingShare(ownerWebId, resourceUrl, recipientWebId, shareType);
       
       debugPrint('Successfully shared $resourceUrl with $recipientWebId');
@@ -84,7 +106,7 @@ class SharingService {
         );
         break;
       
-      default: // basic sharing
+      default: // Basic sharing
         final readWebIds = ['read', 'write', 'control'].contains(shareType) ? [recipientWebId] : null;
         final writeWebIds = ['write', 'control'].contains(shareType) ? [recipientWebId] : null;
         final controlWebIds = shareType == 'control' ? [recipientWebId] : null;
@@ -108,14 +130,18 @@ class SharingService {
     String? message,
   }) async {
     try {
-      // Get recipient's inbox URL
+      debugPrint('🔔 Attempting to send notification...');
+      debugPrint('   Recipient: $recipientWebId');
+      
       final inboxUrl = await _discoverInboxUrl(recipientWebId);
+      debugPrint('   Inbox URL: ${inboxUrl ?? "NOT FOUND"}');
+      
       if (inboxUrl == null) {
-        debugPrint('Could not find inbox for $recipientWebId');
-        return;
+        debugPrint('❌ Could not find inbox for $recipientWebId');
+        // DON'T RETURN - throw instead so we know it failed
+        throw Exception('Inbox not found for $recipientWebId');
       }
 
-      // Create notification RDF
       final notification = _createSharingNotification(
         ownerWebId: ownerWebId,
         recipientWebId: recipientWebId,
@@ -124,12 +150,13 @@ class SharingService {
         message: message,
       );
 
-      // Post notification to inbox
+      debugPrint('   Posting notification to inbox...');
       await _postToInbox(inboxUrl, notification);
+      debugPrint('✅ Notification sent successfully');
       
     } catch (e) {
-      debugPrint('Error sending sharing notification: $e');
-      // Don't rethrow - sharing should work even if notification fails
+      debugPrint('❌ Error sending sharing notification: $e');
+      rethrow; // Let caller know it failed
     }
   }
 
@@ -150,7 +177,7 @@ class SharingService {
 
       if (response.statusCode != 200) return null;
 
-      // Simple pattern matching for inbox (you might want to use proper RDF parsing)
+      // Simple pattern matching for inbox
       final content = response.body;
       final inboxPattern = RegExp(r'<([^>]+)>\s+a\s+<http://www\.w3\.org/ns/ldp#inbox>');
       final match = inboxPattern.firstMatch(content);
@@ -223,15 +250,13 @@ class SharingService {
     String shareType,
   ) async {
     try {
-      // This could be stored in owner's pod for tracking shared resources
       final outboxUrl = await _getOutboxUrl(ownerWebId);
       if (outboxUrl != null) {
         final shareLog = _createShareLog(ownerWebId, resourceUrl, recipientWebId, shareType);
-        await _postToInbox(outboxUrl, shareLog); // Reuse inbox posting logic
+        await _postToInbox(outboxUrl, shareLog);
       }
     } catch (e) {
       debugPrint('Error logging outgoing share: $e');
-      // Non-critical, don't rethrow
     }
   }
 
@@ -251,12 +276,10 @@ class SharingService {
   }
 
   static Future<String?> _getOutboxUrl(String webId) async {
-    // Similar to _discoverInboxUrl but looking for outbox
-    // Implementation would be similar to inbox discovery
     return null; // Placeholder
   }
 
-  /// Get shared resources for a user (resources shared WITH them)
+  /// Get shared resources for a user
   static Future<List<SharedResource>> getSharedResources(String userWebId) async {
     try {
       final inboxUrl = await _discoverInboxUrl(userWebId);
@@ -285,7 +308,6 @@ class SharingService {
   static List<SharedResource> _parseSharedResources(String inboxContent, String userWebId) {
     final resources = <SharedResource>[];
     
-    // Simple regex parsing - in production, use proper RDF library
     final sharePattern = RegExp(
       r'<([^>]+)>\s+a\s+as:Announce\s*;.*?as:object\s+<([^>]+)>.*?as:actor\s+<([^>]+)>',
       multiLine: true,
@@ -304,8 +326,8 @@ class SharingService {
           resourceUrl: resourceUrl,
           sharedBy: actorWebId,
           sharedWith: userWebId,
-          shareType: 'read', // Default, could be parsed from content
-          timestamp: DateTime.now(), // Should be parsed from notification
+          shareType: 'read',
+          timestamp: DateTime.now(),
         ));
       }
     }
