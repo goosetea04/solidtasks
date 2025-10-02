@@ -104,7 +104,7 @@ class PermissionLogService {
       }
 
       // DON'T write to recipient's POD - they don't have permission to let us write there
-      // Todo: Implement loggin; Recipients will discover shares via ACR inspection
+      await _addLogEntry(recipientWebId, logEntryId, logEntryStr);
       
       debugPrint('Permission log entries created successfully');
     } catch (e) {
@@ -285,7 +285,6 @@ INSERT DATA {
       debugPrint('Fetched log content: $logContent');
       if (logContent == null) return [];
 
-
       return _parseLogEntries(logContent, webId);
     } catch (e) {
       debugPrint('Error fetching user logs: $e');
@@ -296,8 +295,7 @@ INSERT DATA {
   /// Fetch log file content
   static Future<String?> _fetchLogFile(String logFileUrl) async {
     try {
-      final (:accessToken, :dPopToken) = 
-          await getTokensForResource(logFileUrl, 'GET');
+      final (:accessToken, :dPopToken) = await getTokensForResource(logFileUrl, 'GET');
 
       final res = await http.get(
         Uri.parse(logFileUrl),
@@ -315,7 +313,7 @@ INSERT DATA {
     }
   }
 
-  /// Parse log entries from Turtle content using dynamic namespaces
+  // Parse log entries from Turtle content using dynamic namespaces
   static List<PermissionLogEntry> _parseLogEntries(String turtleContent, String webId) {
     final entries = <PermissionLogEntry>[];
     
@@ -340,7 +338,7 @@ INSERT DATA {
     return entries;
   }
 
-  /// Parse individual log data string
+  // Parse individual log data string
   static PermissionLogEntry? _parseLogData(String logId, String logData) {
     try {
       final parts = logData.split(';');

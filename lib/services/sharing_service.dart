@@ -6,7 +6,7 @@ import 'auth_service.dart';
 import 'permission_log_service.dart';
 
 class SharingService {
-  /// Share a resource with another user by creating both ACP and notification
+  
   static Future<void> shareResourceWithUser({
     required String resourceUrl,
     required String ownerWebId,
