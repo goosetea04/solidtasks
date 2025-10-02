@@ -6,7 +6,7 @@ class AcpService {
 
   static const String officialClientId = 'https://clients.example.org/solidtasks-web#client';
   
-  /// USE CASE 1: App-scoped access - Only official client can write
+  /// App-scoped access  Only official client can write
   static Future<void> writeAppScopedAcr(
     String resourceUrl,
     String ownerWebId, {
@@ -52,7 +52,7 @@ class AcpService {
     }
   }
 
-  /// USE CASE 3: Time-limited access
+  /// Time-limited access patterns
   static Future<void> writeTimeLimitedAcr(
     String resourceUrl,
     String ownerWebId, {
@@ -74,7 +74,7 @@ class AcpService {
     }
   }
 
-  /// USE CASE 4: Role-based access
+  /// Role-based access patterns
   static Future<void> writeRoleBasedAcr(
     String resourceUrl,
     String ownerWebId, {
@@ -101,14 +101,13 @@ class AcpService {
   }
 
   // ACR Generators for each use case
-
   static String _generateAppScopedAcr(
     String ownerWebId, {
     List<String>? allowReadWebIds,
     required String allowedClientId,
   }) {
-    final readMatchers = (allowReadWebIds ?? []).map((id) => '<$id>').join(' ');
-    
+    final readAgents = (allowReadWebIds ?? []).map((id) => '<$id>').join(', ');
+  
     return '''
 @prefix acp: <http://www.w3.org/ns/solid/acp#>.
 @prefix acl: <http://www.w3.org/ns/auth/acl#>.
@@ -116,26 +115,35 @@ class AcpService {
 <> a acp:AccessControlResource;
    acp:accessControl <#owner>, <#appWrite>, <#readers>.
 
+<#ownerMatcher> a acp:Matcher ;
+   acp:agent <$ownerWebId/profile/card#me> .
+
 <#owner> a acp:AccessControl; 
    acp:apply <#ownerPolicy>.
 
 <#ownerPolicy> a acp:Policy; 
    acp:allow acl:Read, acl:Write, acl:Control;
-   acp:anyOf ( <$ownerWebId/profile/card#me> ).
+   acp:anyOf <#ownerMatcher> .
+
+<#clientMatcher> a acp:Matcher ;
+   acp:client <$allowedClientId> .
 
 <#appWrite> a acp:AccessControl; 
    acp:apply <#clientPolicy>.
 
 <#clientPolicy> a acp:Policy; 
    acp:allow acl:Write;
-   acp:anyOf ( <$allowedClientId> ).
+   acp:anyOf <#clientMatcher> .
+
+<#readerMatcher> a acp:Matcher ;
+   acp:agent <$ownerWebId/profile/card#me>${readAgents.isNotEmpty ? ', $readAgents' : ''} .
 
 <#readers> a acp:AccessControl; 
    acp:apply <#readerPolicy>.
 
 <#readerPolicy> a acp:Policy; 
    acp:allow acl:Read;
-   acp:anyOf ( <$ownerWebId/profile/card#me> $readMatchers ).
+   acp:anyOf <#readerMatcher> .
 ''';
   }
 
@@ -449,55 +457,68 @@ String _generateAcr(
   final writeList = allowWriteWebIds ?? [];
   final controlList = allowControlWebIds ?? [];
 
-  // Build the list of allowed permissions
-  final permissions = <String>[];
-  if (readList.isNotEmpty || writeList.isNotEmpty || controlList.isNotEmpty || publicRead) {
-    permissions.add('acl:Read');
-  }
-  if (writeList.isNotEmpty || controlList.isNotEmpty) {
-    permissions.add('acl:Write');
-  }
-  if (controlList.isNotEmpty) {
-    permissions.add('acl:Control');
-  }
-
-  // Build the list of agents
-  final agents = <String>[];
-  agents.addAll(readList.map((id) => '<$id>'));
-  agents.addAll(writeList.map((id) => '<$id>'));
-  agents.addAll(controlList.map((id) => '<$id>'));
+  // Build matcher definitions
+  final matchers = StringBuffer();
   
-  if (publicRead) {
-    agents.add('<http://www.w3.org/ns/solid/acp#PublicAgent>');
+  // Owner matcher
+  matchers.writeln('''
+<#ownerMatcher> a acp:Matcher ;
+   acp:agent <$ownerWebId/profile/card#me> .
+''');
+
+  // Read matchers
+  if (readList.isNotEmpty || publicRead) {
+    final agents = readList.map((id) => '<$id>').join(', ');
+    if (publicRead) {
+      matchers.writeln('''
+<#readMatcher> a acp:Matcher ;
+   acp:agent acp:PublicAgent .
+''');
+    } else {
+      matchers.writeln('''
+<#readMatcher> a acp:Matcher ;
+   acp:agent $agents .
+''');
+    }
   }
 
-  // Remove duplicates
-  final uniqueAgents = agents.toSet().toList();
-
-  // Ensure owner WebID has proper format
-  final ownerAgent = ownerWebId.endsWith('/profile/card#me') 
-      ? '<$ownerWebId>' 
-      : '<$ownerWebId/profile/card#me>';
+  // Write matchers
+  if (writeList.isNotEmpty) {
+    final agents = writeList.map((id) => '<$id>').join(', ');
+    matchers.writeln('''
+<#writeMatcher> a acp:Matcher ;
+   acp:agent $agents .
+''');
+  }
 
   return '''@prefix acp: <http://www.w3.org/ns/solid/acp#> .
 @prefix acl: <http://www.w3.org/ns/auth/acl#> .
 
 <> a acp:AccessControlResource ;
-   acp:accessControl <#ownerAccess>${uniqueAgents.isNotEmpty ? ', <#sharedAccess>' : ''} .
+   acp:accessControl <#ownerAccess>${readList.isNotEmpty || publicRead ? ', <#readAccess>' : ''}${writeList.isNotEmpty ? ', <#writeAccess>' : ''} .
 
 <#ownerAccess> a acp:AccessControl ;
    acp:apply <#ownerPolicy> .
 
 <#ownerPolicy> a acp:Policy ;
    acp:allow acl:Read, acl:Write, acl:Control ;
-   acp:anyOf ( $ownerAgent ) .
+   acp:anyOf <#ownerMatcher> .
 
-${uniqueAgents.isNotEmpty ? '''<#sharedAccess> a acp:AccessControl ;
-   acp:apply <#sharedPolicy> .
+${readList.isNotEmpty || publicRead ? '''<#readAccess> a acp:AccessControl ;
+   acp:apply <#readPolicy> .
 
-<#sharedPolicy> a acp:Policy ;
-   acp:allow ${permissions.join(', ')} ;
-   acp:anyOf ( ${uniqueAgents.join(' ')} ) .''' : ''}
+<#readPolicy> a acp:Policy ;
+   acp:allow acl:Read ;
+   acp:anyOf <#readMatcher> .''' : ''}
+
+${writeList.isNotEmpty ? '''<#writeAccess> a acp:AccessControl ;
+   acp:apply <#writePolicy> .
+
+<#writePolicy> a acp:Policy ;
+   acp:allow acl:Read, acl:Write ;
+   acp:anyOf <#writeMatcher> .''' : ''}
+
+$matchers
 ''';
 }
 

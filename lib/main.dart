@@ -35,6 +35,7 @@ class SolidTasksApp extends StatelessWidget {
       required: true,
       title: 'SolidTasks',
       logo: const AssetImage('assets/logo.png'),
+      image: const AssetImage('assets/default_image.jpg'),
       webID: "https://pods.acp.solidcommunity.au",
       child: const TodoHomePage(),
     );

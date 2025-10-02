@@ -26,97 +26,99 @@ class _AddTaskWidgetState extends State<AddTaskWidget> {
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        title: const Text('New Task'),
-        content: Form(
-          key: _formKey,
-          child: SingleChildScrollView(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(
-                maxWidth: 400, // Constant width for dialog
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextFormField(
-                    controller: _titleController,
-                    autofocus: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Title *',
-                      hintText: 'e.g., Finish report draft',
-                      border: OutlineInputBorder(),
+      builder: (ctx) => StatefulBuilder( // Wrap with StatefulBuilder
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('New Task'),
+          content: Form(
+            key: _formKey,
+            child: SingleChildScrollView(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  maxWidth: 400, // Constant width for dialog
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextFormField(
+                      controller: _titleController,
+                      autofocus: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Title *',
+                        hintText: 'e.g., Finish report draft',
+                        border: OutlineInputBorder(),
+                      ),
+                      textInputAction: TextInputAction.next,
+                      validator: (v) => (v == null || v.trim().isEmpty)
+                          ? 'Please enter a task title'
+                          : null,
                     ),
-                    textInputAction: TextInputAction.next,
-                    validator: (v) => (v == null || v.trim().isEmpty)
-                        ? 'Please enter a task title'
-                        : null,
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _descriptionController,
-                    decoration: const InputDecoration(
-                      labelText: 'Description',
-                      hintText: 'Optional details about the task',
-                      border: OutlineInputBorder(),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _descriptionController,
+                      decoration: const InputDecoration(
+                        labelText: 'Description',
+                        hintText: 'Optional details about the task',
+                        border: OutlineInputBorder(),
+                      ),
+                      minLines: 3,   // This starts with 3 lines
+                      maxLines: 6,   // Text box Grows downwards, never sideways
+                      textInputAction: TextInputAction.done,
                     ),
-                    minLines: 3,   // This starts with 3 lines
-                    maxLines: 6,   // Text box Grows downwards, never sideways
-                    textInputAction: TextInputAction.done,
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          _dueDate != null
-                              ? 'Due: ${_dueDate!.toLocal()}'.split(' ')[0]
-                              : 'No due date set',
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            _dueDate != null
+                                ? 'Due: ${_dueDate!.toLocal()}'
+                                : 'No due date set',
+                          ),
                         ),
-                      ),
-                      TextButton(
-                        onPressed: () async {
-                          final pickedDate = await showDatePicker(
-                            context: context,
-                            initialDate: _dueDate ?? DateTime.now(),
-                            firstDate: DateTime.now(),
-                            lastDate: DateTime(2100),
-                          );
-                          if (pickedDate != null) {
-                            setState(() {
-                              _dueDate = pickedDate;
-                            });
-                          }
-                        },
-                        child: const Text('Set Date'),
-                      ),
-                    ],
-                  ),
-                ],
+                        TextButton(
+                          onPressed: () async {
+                            final pickedDate = await showDatePicker(
+                              context: context,
+                              initialDate: _dueDate ?? DateTime.now(),
+                              firstDate: DateTime.now(),
+                              lastDate: DateTime(2100),
+                            );
+                            if (pickedDate != null) {
+                              setDialogState(() { // Use setDialogState instead of setState
+                                _dueDate = pickedDate;
+                              });
+                            }
+                          },
+                          child: const Text('Set Date'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (_formKey.currentState?.validate() ?? false) {
+                  widget.onAddTask(
+                    _titleController.text.trim(),
+                    _descriptionController.text.trim().isEmpty
+                        ? null
+                        : _descriptionController.text.trim(),
+                    _dueDate,
+                  );
+                  Navigator.of(ctx).pop();
+                }
+              },
+              child: const Text('Add'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              if (_formKey.currentState?.validate() ?? false) {
-                widget.onAddTask(
-                  _titleController.text.trim(),
-                  _descriptionController.text.trim().isEmpty
-                      ? null
-                      : _descriptionController.text.trim(),
-                  _dueDate,
-                );
-                Navigator.of(ctx).pop();
-              }
-            },
-            child: const Text('Add'),
-          ),
-        ],
       ),
     );
   }
