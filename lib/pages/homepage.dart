@@ -11,7 +11,6 @@ import '../widgets/add_task_widget.dart';
 import '../widgets/edit_task_dialog.dart';
 import '../widgets/empty_state.dart';
 import 'shared_tasks_page.dart';
-import 'package:solidpod/solidpod.dart' show SharedResourcesUi;
 
 class TodoHomePage extends ConsumerStatefulWidget {
   const TodoHomePage({Key? key}) : super(key: key);
@@ -125,8 +124,8 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
                 items: const [
                   DropdownMenuItem(value: 'basic', child: Text('Basic Sharing')),
                   DropdownMenuItem(value: 'app_scoped', child: Text('App-Scoped')),
-                  DropdownMenuItem(value: 'time_limited', child: Text('Time-Limited')),
                   DropdownMenuItem(value: 'delegated_sharing', child: Text('Delegated')),
+                  DropdownMenuItem(value: 'role_based', child: Text('Role-Based')),
                 ],
                 onChanged: (value) => setState(() => acpPattern = value!),
               ),
@@ -150,8 +149,6 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
   Future<void> _shareTaskWithUser(String taskId, String recipientWebId, String shareType, String pattern, String message) async {
     try {
       final taskUrl = await PodService.taskFileUrl(taskId);
-      
-      // Get the actual authenticated user's WebID
       String? ownerWebId = await AuthService.getCurrentUserWebId();
       
       if (ownerWebId == null) {
@@ -189,13 +186,22 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
   Future<void> _applyAcpUseCase(String taskId, String useCase) async {
     try {
       final taskUrl = await PodService.taskFileUrl(taskId);
-      final ownerWebId = 'https://user.example.org/profile/card#me';
+      String? ownerWebId = await AuthService.getCurrentUserWebId();
+      
+      if (ownerWebId == null) {
+        _showSnackBar('WebID is required for ACP operations', Colors.orange);
+        return;
+      }
 
       switch (useCase) {
-        case 'app_scoped': await _showAcpDialog('App-Scoped Access', _buildAppScopedForm(taskUrl, ownerWebId));
-        case 'delegated_sharing': await _showAcpDialog('Delegated Sharing', _buildDelegatedForm(taskUrl, ownerWebId));
-        case 'time_limited': await _showAcpDialog('Time-Limited Access', _buildTimeLimitedForm(taskUrl, ownerWebId));
-        case 'role_based': await _showAcpDialog('Role-Based Access', _buildRoleBasedForm(taskUrl, ownerWebId));
+        case 'app_scoped': 
+          await _showAcpDialog('App-Scoped Access', _buildAppScopedForm(taskUrl, ownerWebId));
+        case 'delegated_sharing': 
+          await _showAcpDialog('Delegated Sharing', _buildDelegatedForm(taskUrl, ownerWebId));
+        case 'role_based': 
+          await _showAcpDialog('Role-Based Access', _buildRoleBasedForm(taskUrl, ownerWebId));
+        case 'container_inheritance':
+          await _applyContainerInheritance(ownerWebId);
       }
       _showSnackBar('ACP policy applied successfully!', Colors.green);
     } catch (e) {
@@ -237,65 +243,57 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
     );
   }
 
-  Widget _buildTimeLimitedForm(String taskUrl, String ownerWebId) {
-    final tempUsersCtrl = TextEditingController();
-    DateTime? selectedDate;
-    
-    return StatefulBuilder(
-      builder: (context, setState) => _AcpForm(
-        children: [
-          _buildTextField(tempUsersCtrl, 'Temporary User WebIDs (comma-separated)', maxLines: 2),
-          Row(
-            children: [
-              const Text('Valid Until: '),
-              TextButton(
-                onPressed: () async {
-                  final picked = await showDatePicker(
-                    context: context,
-                    initialDate: DateTime.now().add(const Duration(days: 7)),
-                    firstDate: DateTime.now(),
-                    lastDate: DateTime.now().add(const Duration(days: 365)),
-                  );
-                  if (picked != null) setState(() => selectedDate = picked);
-                },
-                child: Text(
-                  selectedDate?.toString().split(' ')[0] ?? 'Select Date',
-                  style: TextStyle(color: selectedDate != null ? Colors.blue : Colors.grey),
-                ),
-              ),
-            ],
-          ),
-        ],
-        onApply: () async {
-          final tempUsers = _parseWebIds(tempUsersCtrl.text);
-          await AcpService.writeTimeLimitedAcr(taskUrl, ownerWebId, 
-            tempAccessWebIds: tempUsers, validUntil: selectedDate);
-        },
-      ),
-    );
-  }
-
   Widget _buildRoleBasedForm(String taskUrl, String ownerWebId) {
     final adminCtrl = TextEditingController();
     final reviewerCtrl = TextEditingController();
     final contributorCtrl = TextEditingController();
-    final authorCtrl = TextEditingController();
     
     return _AcpForm(
       children: [
-        _buildTextField(adminCtrl, 'Admin Roles (comma-separated)'),
-        _buildTextField(reviewerCtrl, 'Reviewer Roles (comma-separated)'),
-        _buildTextField(contributorCtrl, 'Contributor Roles (comma-separated)'),
-        _buildTextField(authorCtrl, 'Resource Author WebID (optional)'),
+        _buildTextField(adminCtrl, 'Admin WebIDs (comma-separated)'),
+        _buildTextField(reviewerCtrl, 'Reviewer WebIDs (comma-separated)'),
+        _buildTextField(contributorCtrl, 'Contributor WebIDs (comma-separated)'),
       ],
       onApply: () async {
         await AcpService.writeRoleBasedAcr(taskUrl, ownerWebId,
-          adminRoles: _parseWebIds(adminCtrl.text),
-          reviewerRoles: _parseWebIds(reviewerCtrl.text),
-          contributorRoles: _parseWebIds(contributorCtrl.text),
-          resourceAuthor: authorCtrl.text.trim().isEmpty ? null : authorCtrl.text.trim(),
+          adminWebIds: _parseWebIds(adminCtrl.text),
+          reviewerWebIds: _parseWebIds(reviewerCtrl.text),
+          contributorWebIds: _parseWebIds(contributorCtrl.text),
         );
       },
+    );
+  }
+
+  Future<void> _applyContainerInheritance(String ownerWebId) async {
+    final readCtrl = TextEditingController();
+    final writeCtrl = TextEditingController();
+    
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Container Inheritance'),
+        content: _AcpForm(
+          children: [
+            const Text('Apply default permissions to all tasks in the container:'),
+            const SizedBox(height: 8),
+            _buildTextField(readCtrl, 'Default Read Access WebIDs', maxLines: 2),
+            _buildTextField(writeCtrl, 'Default Write Access WebIDs', maxLines: 2),
+          ],
+          onApply: () async {
+            final webId = ownerWebId.replaceAll('/profile/card#me', '');
+            final containerUrl = '$webId/solidtasks/data/';
+            await AcpService.writeContainerAcr(
+              containerUrl,
+              ownerWebId,
+              defaultReadWebIds: _parseWebIds(readCtrl.text),
+              defaultWriteWebIds: _parseWebIds(writeCtrl.text),
+            );
+          },
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        ],
+      ),
     );
   }
 
@@ -316,8 +314,8 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
     final useCases = [
       ('App-Scoped Access', 'Only official client can write', Icons.apps, 'app_scoped'),
       ('Delegated Sharing', 'Manager can grant limited access', Icons.supervisor_account, 'delegated_sharing'),
-      ('Time-Limited Access', 'Temporary access with expiration', Icons.schedule, 'time_limited'),
       ('Role-Based Access', 'Access based on organizational roles', Icons.groups, 'role_based'),
+      ('Container Inheritance', 'Apply default permissions to all tasks', Icons.folder_shared, 'container_inheritance'),
     ];
 
     showDialog(
@@ -437,11 +435,10 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
             const SizedBox(height: 4),
             Row(
               children: [
-                const Text('Policy: ', style: TextStyle(fontSize: 12)),
+                const Text('Pattern: ', style: TextStyle(fontSize: 12)),
                 ..._buildPolicyChips(policies),
               ],
             ),
-            if (acr.contains('ex:validUntil')) _buildTimeAccessStatus(taskId),
           ],
         );
       },
@@ -450,10 +447,9 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
 
   List<String> _extractPolicies(String acr) {
     final policies = <String>[];
-    if (acr.contains('ex:validUntil')) policies.add('Time-Limited');
     if (acr.contains('dct:creator')) policies.add('Delegated');
-    if (acr.contains('anyOf ( <${AcpService.officialClientId}>')) policies.add('App-Scoped');
-    if (acr.contains('/roles/')) policies.add('Role-Based');
+    if (acr.contains('acp:client')) policies.add('App-Scoped');
+    if (acr.contains('adminMatcher') || acr.contains('reviewerMatcher')) policies.add('Role-Based');
     return policies.isEmpty ? ['Basic'] : policies;
   }
 
@@ -462,28 +458,6 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
       label: Text(policy, style: const TextStyle(fontSize: 10)),
       backgroundColor: Colors.blue[100],
     )).toList();
-  }
-
-  Widget _buildTimeAccessStatus(String taskId) {
-    return FutureBuilder<bool>(
-      future: PodService.taskFileUrl(taskId).then((url) => AcpService.hasValidTimeAccess(url)),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) return const SizedBox.shrink();
-        final isValid = snapshot.data!;
-        return Padding(
-          padding: const EdgeInsets.only(top: 4),
-          child: Row(
-            children: [
-              Icon(isValid ? Icons.check_circle : Icons.warning, 
-                size: 14, color: isValid ? Colors.green : Colors.orange),
-              const SizedBox(width: 4),
-              Text(isValid ? 'Access valid' : 'Access expired',
-                style: TextStyle(fontSize: 12, color: isValid ? Colors.green : Colors.orange)),
-            ],
-          ),
-        );
-      },
-    );
   }
 
   @override
@@ -502,21 +476,16 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
             tooltip: 'Shared tasks',
             onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SharedTasksPage())),
           ),
-          IconButton(
-            icon: const Icon(Icons.group),
-            tooltip: 'Shared with me',
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SharedTasksPage())),
-          ),
           IconButton(onPressed: _logout, icon: const Icon(Icons.logout), tooltip: 'Logout'),
           IconButton(
             onPressed: _isSyncing ? null : _saveTasksToPod,
             icon: _isSyncing ? _buildLoadingIndicator() : const Icon(Icons.sync),
-            tooltip: 'Sync with POD',
+            tooltip: 'Save Changes to POD',
           ),
           IconButton(
             onPressed: _isLoading ? null : _loadTasksFromPod,
             icon: _isLoading ? _buildLoadingIndicator() : const Icon(Icons.refresh),
-            tooltip: 'Reload from POD',
+            tooltip: 'Reload Data from POD',
           ),
           Padding(
             padding: const EdgeInsets.all(16.0),
@@ -531,7 +500,7 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
-                WeeklyCalendar(tasks: tasks, weekStart: weekStart),
+                WeeklyCalendar(tasks: tasks, initialWeekStart: weekStart),
                 const Divider(height: 1),
                 Expanded(
                   child: tasks.isEmpty
@@ -590,7 +559,6 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
   }
 }
 
-// Helper widget for ACP forms
 class _AcpForm extends StatelessWidget {
   final List<Widget> children;
   final Future<void> Function() onApply;

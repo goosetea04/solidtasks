@@ -58,8 +58,6 @@ class SharingService {
       rethrow;
     }
   }
-
-  /// Apply ACP pattern based on sharing requirements
   static Future<void> _applyAcpPattern(
     String resourceUrl,
     String ownerWebId,
@@ -78,20 +76,13 @@ class SharingService {
         );
         break;
       
-      case 'time_limited':
-        await AcpService.writeTimeLimitedAcr(
-          resourceUrl,
-          ownerWebId,
-          tempAccessWebIds: [recipientWebId],
-          validUntil: options?['validUntil'] ?? DateTime.now().add(const Duration(days: 7)),
-        );
-        break;
+      // REMOVED: time_limited case
       
       case 'delegated_sharing':
         await AcpService.writeDelegatedSharingAcr(
           resourceUrl,
           ownerWebId,
-          recipientWebId, // recipient acts as manager
+          recipientWebId,
           contractorWebIds: options?['contractors'],
         );
         break;
@@ -100,9 +91,9 @@ class SharingService {
         await AcpService.writeRoleBasedAcr(
           resourceUrl,
           ownerWebId,
-          adminRoles: shareType == 'control' ? [recipientWebId] : null,
-          reviewerRoles: shareType == 'read' ? [recipientWebId] : null,
-          contributorRoles: shareType == 'write' ? [recipientWebId] : null,
+          adminWebIds: shareType == 'control' ? [recipientWebId] : null,
+          reviewerWebIds: shareType == 'read' ? [recipientWebId] : null,
+          contributorWebIds: shareType == 'write' ? [recipientWebId] : null,
         );
         break;
       
@@ -120,6 +111,7 @@ class SharingService {
         );
     }
   }
+  
 
   /// Send notification to recipient's inbox
   static Future<void> _sendSharingNotification({
