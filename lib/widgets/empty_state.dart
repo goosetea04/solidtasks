@@ -16,7 +16,7 @@ class EmptyState extends StatelessWidget {
             style: TextStyle(fontSize: 18, color: Colors.grey),
           ),
           Text(
-            'Add your first task above',
+            'Add your first task below',
             style: TextStyle(color: Colors.grey),
           ),
         ],
