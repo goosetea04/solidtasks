@@ -34,6 +34,45 @@ class PodService {
     );
   }
 
+  static Future<void> deleteTaskFile(String taskUrl) async {
+    // Get tokens using the same pattern as other methods
+    final (:accessToken, :dPopToken) = await getTokensForResource(taskUrl, 'DELETE');
+    
+    final response = await http.delete(
+      Uri.parse(taskUrl),
+      headers: {
+        'Authorization': 'DPoP $accessToken',  // Use DPoP, not Bearer
+        'DPoP': dPopToken,
+      },
+    );
+    
+    if (response.statusCode != 200 && response.statusCode != 204) {
+      debugPrint('Failed to delete task file: ${response.statusCode} ${response.body}');
+      throw Exception('Failed to delete task file: ${response.statusCode}');
+    }
+    
+    debugPrint('Task file deleted: $taskUrl');
+    
+    // Also delete associated ACR/ACL files if they exist
+    try {
+      await _deleteResource('$taskUrl.acr');
+    } catch (e) {
+      debugPrint('No ACR file to delete or delete failed: $e');
+    }
+    
+    try {
+      await _deleteResource('$taskUrl.acl');
+    } catch (e) {
+      debugPrint('No ACL file to delete or delete failed: $e');
+    }
+    
+    try {
+      await _deleteResource('$taskUrl.acr.meta');
+    } catch (e) {
+      debugPrint('No ACR.meta file to delete or delete failed: $e');
+    }
+  }
+
   // Auth / Session
   static Future<bool> logout(BuildContext context) async {
     try {
@@ -195,7 +234,7 @@ static Future<String?> _httpGetTextTurtle(String fullUrl) async {
         final fileUrl = '$fullDirPath$fileName';
 
         // Generate preset ACR string
-        final collaboratorWebId = "https://pods.acp.solidcommunity.au/gooseacp1/profile/card#me";
+        final collaboratorWebId = "https://pods.acp.solidcommunity.au/gooseacp/profile/card#me";
 
         await AcpPresets.writeAcrForResource(
           fileUrl,
@@ -203,6 +242,13 @@ static Future<String?> _httpGetTextTurtle(String fullUrl) async {
           allowReadWebIds: [collaboratorWebId],
           allowWriteWebIds: [collaboratorWebId],
         );
+
+        try {
+          await _deleteResource('$fileUrl.acl');
+          debugPrint('Deleted auto-generated .acl file for $fileName');
+        } catch (e) {
+          debugPrint('No .acl file to delete: $e');
+        }
         await PermissionLogService.logPermissionChange(
           resourceUrl: fileUrl,
           ownerWebId: ownerWebId,

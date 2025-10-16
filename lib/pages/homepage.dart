@@ -78,9 +78,17 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
     _saveTasksToPod();
   }
 
-  void _deleteTask(String id) {
-    ref.read(tasksProvider.notifier).deleteTask(id);
-    _saveTasksToPod();
+  Future<void> _deleteTask(String id) async {
+    // First, delete the file from the server
+    await _executeWithLoading(() async {
+      final taskUrl = await PodService.taskFileUrl(id);
+      await PodService.deleteTaskFile(taskUrl); // You need to add this method
+      
+      // Then remove from state
+      ref.read(tasksProvider.notifier).deleteTask(id);
+      _showSnackBar('Task deleted successfully!', Colors.green);
+    }, 'Failed to delete task');
+    _loadTasksFromPod(); // Refresh the list after deletion
   }
 
   void _updateTask(String id, String title, {String? description, DateTime? dueDate}) {
