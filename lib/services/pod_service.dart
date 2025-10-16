@@ -17,81 +17,6 @@ class PodService {
   static const String _taskPrefix = 'task_';
   static const String _taskExt = '.ttl';
 
-  static Future<void> diagnoseAuth() async {
-    debugPrint('=== AUTH DIAGNOSTICS ===');
-    
-    try {
-      // 1. Check what WebID we're authenticated as
-      final webId = await getWebId();
-      debugPrint('Authenticated WebID: $webId');
-      
-      if (webId == null || webId.isEmpty) {
-        debugPrint('NOT AUTHENTICATED - No WebID found');
-        return;
-      }
-      
-      // 2. Check if it matches expected user
-      final expectedWebId = 'https://pods.acp.solidcommunity.au/gooseacp1/profile/card#me';
-      if (webId == expectedWebId) {
-        debugPrint('WebID matches expected user (gooseacp1)');
-      } else {
-        debugPrint('WebID MISMATCH!');
-        debugPrint('   Expected: $expectedWebId');
-        debugPrint('   Got: $webId');
-      }
-      
-      // 3. Try to get tokens for a test resource
-      final testUrl = 'https://pods.acp.solidcommunity.au/gooseacp1/solidtasks/data/';
-      debugPrint('Testing token generation for: $testUrl');
-      
-      try {
-        final (:accessToken, :dPopToken) = await getTokensForResource(testUrl, 'GET');
-        debugPrint('Access token (first 50 chars): ${accessToken.substring(0, accessToken.length > 50 ? 50 : accessToken.length)}...');
-        debugPrint('DPoP token (first 50 chars): ${dPopToken.substring(0, dPopToken.length > 50 ? 50 : dPopToken.length)}...');
-      } catch (e) {
-        debugPrint('Failed to get tokens: $e');
-      }
-      
-    } catch (e) {
-      debugPrint('Auth diagnostic failed: $e');
-    }
-    
-    debugPrint('=== END DIAGNOSTICS ===\n');
-  }
-
-  static Future<void> testDirectAccess() async {
-    debugPrint('=== TESTING DIRECT ACCESS ===');
-    
-    final testUrls = [
-      'https://pods.acp.solidcommunity.au/gooseacp1/solidtasks/',
-      'https://pods.acp.solidcommunity.au/gooseacp1/solidtasks/data/',
-      'https://pods.acp.solidcommunity.au/gooseacp1/solidtasks/data/test.txt',
-    ];
-    
-    for (final url in testUrls) {
-      try {
-        final (:accessToken, :dPopToken) = await getTokensForResource(url, 'GET');
-        final res = await http.get(
-          Uri.parse(url),
-          headers: {
-            'Accept': 'text/turtle',
-            'Authorization': 'DPoP $accessToken',
-            'DPoP': dPopToken,
-          },
-        );
-        
-        debugPrint('$url => ${res.statusCode}');
-        if (res.statusCode != 200) {
-          debugPrint('Response body: ${res.body}');
-        }
-      } catch (e) {
-        debugPrint('$url => ERROR: $e');
-      }
-    }
-    
-    debugPrint('=== END DIRECT ACCESS TEST ===\n');
-  }
-
   static Future<void> openShareUiForTask(
     BuildContext context,
     StatefulWidget returnTo,
@@ -154,11 +79,10 @@ class PodService {
 static Future<List<Task>> loadTasks(BuildContext context, StatefulWidget widget) async {
   debugPrint('=== STARTING LOAD TASKS ===');
 
-  await diagnoseAuth();
-  await testDirectAccess();
-
   final loggedIn = await loginIfRequired(context);
   if (!loggedIn) throw Exception('Login required');
+  
+  await Future.delayed(Duration(milliseconds: 300));
 
   String webId = await getWebId() as String;
   webId = webId.replaceAll(profCard, '');
