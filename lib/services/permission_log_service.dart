@@ -69,7 +69,8 @@ class PermissionLogService {
     return [logEntryId, logEntryStr];
   }
 
-  /// Add a log entry to relevant log files (owner and granter only)
+  /// Add a log entry to relevant log files (owner, granter, and recipient)
+  /// Server is configured with public agent write access to logs
   static Future<void> logPermissionChange({
     required String resourceUrl,
     required String ownerWebId,
@@ -80,35 +81,64 @@ class PermissionLogService {
     String? acpPattern,
     DateTime? expiryDate,
   }) async {
+    final logEntry = createPermLogEntry(
+      permissionList: permissionList,
+      resourceUrl: resourceUrl,
+      ownerWebId: ownerWebId,
+      permissionType: permissionType,
+      granterWebId: granterWebId,
+      recipientWebId: recipientWebId,
+      acpPattern: acpPattern,
+      expiryDate: expiryDate,
+    );
+
+    final logEntryId = logEntry[0];
+    final logEntryStr = logEntry[1];
+
+    // Track which logs succeeded/failed
+    final results = <String, bool>{};
+
+    // Write to granter's log
     try {
-      final logEntry = createPermLogEntry(
-        permissionList: permissionList,
-        resourceUrl: resourceUrl,
-        ownerWebId: ownerWebId,
-        permissionType: permissionType,
-        granterWebId: granterWebId,
-        recipientWebId: recipientWebId,
-        acpPattern: acpPattern,
-        expiryDate: expiryDate,
-      );
-
-      final logEntryId = logEntry[0];
-      final logEntryStr = logEntry[1];
-
-      // Write to granter's log
       await _addLogEntry(granterWebId, logEntryId, logEntryStr);
-
-      // Write to owner's log if different from granter
-      if (ownerWebId != granterWebId) {
-        await _addLogEntry(ownerWebId, logEntryId, logEntryStr);
-      }
-
-      // DON'T write to recipient's POD - they don't have permission to let us write there
-      await _addLogEntry(recipientWebId, logEntryId, logEntryStr);
-      
-      debugPrint('Permission log entries created successfully');
+      results['granter'] = true;
+      debugPrint('✅ Logged to granter\'s POD: $granterWebId');
     } catch (e) {
-      debugPrint('Error logging permission change: $e');
+      results['granter'] = false;
+      debugPrint('❌ Failed to log to granter\'s POD: $e');
+    }
+
+    // Write to owner's log if different from granter
+    if (ownerWebId != granterWebId) {
+      try {
+        await _addLogEntry(ownerWebId, logEntryId, logEntryStr);
+        results['owner'] = true;
+        debugPrint('✅ Logged to owner\'s POD: $ownerWebId');
+      } catch (e) {
+        results['owner'] = false;
+        debugPrint('❌ Failed to log to owner\'s POD: $e');
+      }
+    }
+
+    // Write to recipient's log (enabled via public agent access)
+    if (recipientWebId != granterWebId && recipientWebId != ownerWebId) {
+      try {
+        await _addLogEntry(recipientWebId, logEntryId, logEntryStr);
+        results['recipient'] = true;
+        debugPrint('✅ Logged to recipient\'s POD: $recipientWebId');
+      } catch (e) {
+        results['recipient'] = false;
+        debugPrint('❌ Failed to log to recipient\'s POD: $e');
+      }
+    }
+
+    // Log summary
+    final successCount = results.values.where((v) => v).length;
+    final totalCount = results.length;
+    debugPrint('Permission log summary: $successCount/$totalCount logs written successfully');
+    
+    if (successCount == 0) {
+      throw Exception('Failed to write to any permission logs');
     }
   }
 

@@ -234,7 +234,7 @@ static Future<String?> _httpGetTextTurtle(String fullUrl) async {
         final fileUrl = '$fullDirPath$fileName';
 
         // Generate preset ACR string
-        final collaboratorWebId = "https://pods.acp.solidcommunity.au/gooseacp/profile/card#me";
+        final collaboratorWebId = "https://pods.acp.solidcommunity.au/acptest2/profile/card#me";
 
         await AcpPresets.writeAcrForResource(
           fileUrl,
