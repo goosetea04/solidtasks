@@ -6,6 +6,19 @@ import 'auth_service.dart';
 import 'permission_log_service.dart';
 
 class SharingService {
+  static const String profCard = '/profile/card#me';
+
+  // 🔧 Normalize WebID to ensure consistent format
+  static String _normalizeWebId(String webId) {
+    // Remove profile card suffix if present
+    String normalized = webId.replaceAll(profCard, '');
+    // Ensure trailing slash for base URL
+    if (!normalized.endsWith('/')) {
+      normalized += '/';
+    }
+    // Add back profile card
+    return '$normalized${profCard.substring(1)}'; // Remove leading slash from profCard
+  }
   
   static Future<void> shareResourceWithUser({
     required String resourceUrl,
@@ -17,23 +30,32 @@ class SharingService {
     Map<String, dynamic>? acpOptions,
   }) async {
     try {
+      debugPrint('🔄 Starting share process...');
+      debugPrint('   Resource: $resourceUrl');
+      debugPrint('   Owner: $ownerWebId');
+      debugPrint('   Recipient: $recipientWebId');
+      
+      // 🔧 Normalize the recipient WebID before storing in log
+      final normalizedRecipient = _normalizeWebId(recipientWebId);
+      debugPrint('   Normalized recipient: $normalizedRecipient');
+      
       // Apply ACP policy based on pattern
       await _applyAcpPattern(
         resourceUrl, 
         ownerWebId, 
-        recipientWebId, 
+        normalizedRecipient,  // Use normalized version
         shareType, 
         acpPattern, 
         acpOptions,
       );
       
-      // Log the permission change
+      // Log the permission change with normalized WebID
       final currentUserWebId = await AuthService.getCurrentUserWebId();
       await PermissionLogService.logPermissionChange(
         resourceUrl: resourceUrl,
         ownerWebId: ownerWebId,
         granterWebId: currentUserWebId ?? ownerWebId,
-        recipientWebId: recipientWebId,
+        recipientWebId: normalizedRecipient,  // Use normalized version
         permissionList: [shareType],
         permissionType: 'grant',
         acpPattern: acpPattern,
@@ -43,21 +65,22 @@ class SharingService {
       // Send sharing notification to recipient
       await _sendSharingNotification(
         ownerWebId: ownerWebId,
-        recipientWebId: recipientWebId,
+        recipientWebId: normalizedRecipient,  // Use normalized version
         resourceUrl: resourceUrl,
         shareType: shareType,
         message: message,
       );
       
       // Log the share in owner's outgoing shares
-      await _logOutgoingShare(ownerWebId, resourceUrl, recipientWebId, shareType);
+      await _logOutgoingShare(ownerWebId, resourceUrl, normalizedRecipient, shareType);
       
-      debugPrint('Successfully shared $resourceUrl with $recipientWebId');
+      debugPrint('✅ Successfully shared $resourceUrl with $normalizedRecipient');
     } catch (e) {
-      debugPrint('Error sharing resource: $e');
+      debugPrint('❌ Error sharing resource: $e');
       rethrow;
     }
   }
+  
   static Future<void> _applyAcpPattern(
     String resourceUrl,
     String ownerWebId,
@@ -75,8 +98,6 @@ class SharingService {
           allowedClientId: options?['clientId'] ?? AcpService.officialClientId,
         );
         break;
-      
-      // REMOVED: time_limited case
       
       case 'delegated_sharing':
         await AcpService.writeDelegatedSharingAcr(
@@ -122,16 +143,16 @@ class SharingService {
     String? message,
   }) async {
     try {
-      debugPrint('🔔 Attempting to send notification...');
+      debugPrint('📬 Attempting to send notification...');
       debugPrint('   Recipient: $recipientWebId');
       
       final inboxUrl = await _discoverInboxUrl(recipientWebId);
       debugPrint('   Inbox URL: ${inboxUrl ?? "NOT FOUND"}');
       
       if (inboxUrl == null) {
-        debugPrint('❌ Could not find inbox for $recipientWebId');
-        // DON'T RETURN - throw instead so we know it failed
-        throw Exception('Inbox not found for $recipientWebId');
+        debugPrint('⚠️  Could not find inbox for $recipientWebId');
+        // Don't throw - inbox is optional
+        return;
       }
 
       final notification = _createSharingNotification(
@@ -147,8 +168,8 @@ class SharingService {
       debugPrint('✅ Notification sent successfully');
       
     } catch (e) {
-      debugPrint('❌ Error sending sharing notification: $e');
-      rethrow; // Let caller know it failed
+      debugPrint('⚠️  Error sending sharing notification: $e');
+      // Don't rethrow - notification is optional
     }
   }
 
@@ -271,32 +292,45 @@ class SharingService {
     return null; // Placeholder
   }
 
-  /// Get shared resources for a user
+  /// Get shared resources for a user from permission logs
   static Future<List<SharedResource>> getSharedResources(String userWebId) async {
     try {
-      final inboxUrl = await _discoverInboxUrl(userWebId);
-      if (inboxUrl == null) return [];
-
-      final (:accessToken, :dPopToken) = await getTokensForResource(inboxUrl, 'GET');
-      final response = await http.get(
-        Uri.parse(inboxUrl),
-        headers: {
-          'Accept': 'text/turtle, application/ld+json',
-          'Authorization': 'DPoP $accessToken',
-          'DPoP': dPopToken,
-        },
-      );
-
-      if (response.statusCode != 200) return [];
-
-      return _parseSharedResources(response.body, userWebId);
+      debugPrint('🔍 Getting shared resources for: $userWebId');
+      
+      // Normalize the user's WebID
+      final normalizedUserWebId = _normalizeWebId(userWebId);
+      debugPrint('   Normalized: $normalizedUserWebId');
+      
+      // Get permission logs instead of inbox
+      final logs = await PermissionLogService.fetchUserLogs();
+      debugPrint('   Found ${logs.length} total logs');
+      
+      // Filter for grants where user is recipient
+      final relevantLogs = logs.where((log) =>
+        _normalizeWebId(log.recipientWebId) == normalizedUserWebId &&
+        log.permissionType == 'grant'
+      ).toList();
+      
+      debugPrint('   Found ${relevantLogs.length} relevant shares');
+      
+      // Convert to SharedResource objects
+      return relevantLogs.map((log) => SharedResource(
+        id: log.id,
+        resourceUrl: log.resourceUrl,
+        sharedBy: log.granterWebId,
+        sharedWith: log.recipientWebId,
+        shareType: log.permissions.join(','),
+        timestamp: log.timestamp,
+        message: null,
+      )).toList();
+      
     } catch (e) {
-      debugPrint('Error getting shared resources: $e');
+      debugPrint('❌ Error getting shared resources: $e');
       return [];
     }
   }
 
-  /// Parse shared resources from inbox
+  /// Parse shared resources from inbox (DEPRECATED - use permission logs)
   static List<SharedResource> _parseSharedResources(String inboxContent, String userWebId) {
     final resources = <SharedResource>[];
     
@@ -330,6 +364,7 @@ class SharingService {
   /// Test if user has access to a resource
   static Future<bool> canAccessResource(String resourceUrl, String userWebId) async {
     try {
+      debugPrint('🔐 Testing access to: $resourceUrl');
       final (:accessToken, :dPopToken) = await getTokensForResource(resourceUrl, 'GET');
       final response = await http.head(
         Uri.parse(resourceUrl),
@@ -339,9 +374,11 @@ class SharingService {
         },
       );
       
-      return [200, 204].contains(response.statusCode);
+      final canAccess = [200, 204].contains(response.statusCode);
+      debugPrint('   Access result: ${canAccess ? "✅ GRANTED" : "❌ DENIED"} (${response.statusCode})');
+      return canAccess;
     } catch (e) {
-      debugPrint('Error testing resource access: $e');
+      debugPrint('❌ Error testing resource access: $e');
       return false;
     }
   }

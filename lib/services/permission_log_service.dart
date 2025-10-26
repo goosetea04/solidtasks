@@ -26,6 +26,18 @@ class PermissionLogService {
   static const String logsDirRel = '/solidtasks/logs/';
   static const String permLogFile = 'permissions-log.ttl';
 
+  // 🔧 NEW: Normalize WebID for consistent comparison
+  static String _normalizeWebId(String webId) {
+    // Remove profile card suffix if present
+    String normalized = webId.replaceAll(profCard, '');
+    // Ensure trailing slash for base URL
+    if (!normalized.endsWith('/')) {
+      normalized += '/';
+    }
+    // Add back profile card
+    return '$normalized${profCard.substring(1)}'; // Remove leading slash from profCard
+  }
+
   // Generate namespace URIs based on user's WebID
   static String _getLogNamespace(String webId) {
     final cleanWebId = webId.replaceAll(profCard, ''); // Example would be https://pods.acp.solidcommunity.au/gooseacp1/
@@ -81,6 +93,16 @@ class PermissionLogService {
     String? acpPattern,
     DateTime? expiryDate,
   }) async {
+    // 🔧 NORMALIZE all WebIDs before comparison
+    final normalizedOwner = _normalizeWebId(ownerWebId);
+    final normalizedGranter = _normalizeWebId(granterWebId);
+    final normalizedRecipient = _normalizeWebId(recipientWebId);
+
+    debugPrint('🔍 Normalized WebIDs:');
+    debugPrint('   Owner: $normalizedOwner');
+    debugPrint('   Granter: $normalizedGranter');
+    debugPrint('   Recipient: $normalizedRecipient');
+
     final logEntry = createPermLogEntry(
       permissionList: permissionList,
       resourceUrl: resourceUrl,
@@ -95,49 +117,56 @@ class PermissionLogService {
     final logEntryId = logEntry[0];
     final logEntryStr = logEntry[1];
 
-    // Track which logs succeeded/failed
-    final results = <String, bool>{};
+    // Track which logs succeeded/failed and which were skipped
+    final results = <String, String>{};
 
     // Write to granter's log
     try {
       await _addLogEntry(granterWebId, logEntryId, logEntryStr);
-      results['granter'] = true;
+      results['granter'] = 'success';
       debugPrint('✅ Logged to granter\'s POD: $granterWebId');
     } catch (e) {
-      results['granter'] = false;
+      results['granter'] = 'failed: $e';
       debugPrint('❌ Failed to log to granter\'s POD: $e');
     }
 
     // Write to owner's log if different from granter
-    if (ownerWebId != granterWebId) {
+    if (normalizedOwner != normalizedGranter) {
       try {
         await _addLogEntry(ownerWebId, logEntryId, logEntryStr);
-        results['owner'] = true;
+        results['owner'] = 'success';
         debugPrint('✅ Logged to owner\'s POD: $ownerWebId');
       } catch (e) {
-        results['owner'] = false;
+        results['owner'] = 'failed: $e';
         debugPrint('❌ Failed to log to owner\'s POD: $e');
       }
+    } else {
+      results['owner'] = 'skipped (same as granter)';
+      debugPrint('⏭️  Skipped owner log (same as granter)');
     }
 
     // Write to recipient's log (enabled via public agent access)
-    if (recipientWebId != granterWebId && recipientWebId != ownerWebId) {
+    if (normalizedRecipient != normalizedGranter && normalizedRecipient != normalizedOwner) {
       try {
         await _addLogEntry(recipientWebId, logEntryId, logEntryStr);
-        results['recipient'] = true;
+        results['recipient'] = 'success';
         debugPrint('✅ Logged to recipient\'s POD: $recipientWebId');
       } catch (e) {
-        results['recipient'] = false;
+        results['recipient'] = 'failed: $e';
         debugPrint('❌ Failed to log to recipient\'s POD: $e');
       }
+    } else {
+      results['recipient'] = 'skipped (duplicate)';
+      debugPrint('⏭️  Skipped recipient log (duplicate)');
     }
 
     // Log summary
-    final successCount = results.values.where((v) => v).length;
-    final totalCount = results.length;
-    debugPrint('Permission log summary: $successCount/$totalCount logs written successfully');
+    final successCount = results.values.where((v) => v == 'success').length;
+    final totalAttempts = results.values.where((v) => v != 'skipped (same as granter)' && v != 'skipped (duplicate)').length;
+    debugPrint('📊 Permission log summary: $successCount/$totalAttempts logs written successfully');
+    debugPrint('   Details: $results');
     
-    if (successCount == 0) {
+    if (successCount == 0 && totalAttempts > 0) {
       throw Exception('Failed to write to any permission logs');
     }
   }
@@ -347,23 +376,50 @@ INSERT DATA {
   static List<PermissionLogEntry> _parseLogEntries(String turtleContent, String webId) {
     final entries = <PermissionLogEntry>[];
     
-    // Extract log entries - match any namespace prefix (log:, or the full URI)
-    final logPattern = RegExp(
-      r'(?:log:(\d+)|<[^>]*log#(\d+)>)\s+(?:data:log|<[^>]*data#log>)\s+"([^"]+)"',
-      multiLine: true,
-    );
-
-    for (final match in logPattern.allMatches(turtleContent)) {
-      final logId = match.group(1) ?? match.group(2);
-      final logData = match.group(3);
-      
-      if (logId != null && logData != null) {
+    debugPrint('🔍 Parsing log entries...');
+    debugPrint('   Content length: ${turtleContent.length} chars');
+    
+    // Try line-by-line parsing first (more reliable)
+    final lines = turtleContent.split('\n');
+    int linesParsed = 0;
+    
+    for (var line in lines) {
+      // Look for lines containing log entries
+      if (line.contains('log#') && line.contains('data#log') && line.contains('"')) {
+        linesParsed++;
+        debugPrint('   📄 Processing line: ${line.substring(0, line.length > 80 ? 80 : line.length)}...');
+        
+        // Extract log ID
+        final logIdMatch = RegExp(r'log#(\d+)').firstMatch(line);
+        if (logIdMatch == null) {
+          debugPrint('      ⚠️  No log ID found');
+          continue;
+        }
+        final logId = logIdMatch.group(1)!;
+        
+        // Extract data string between quotes
+        final dataMatch = RegExp(r'"([^"]+)"').firstMatch(line);
+        if (dataMatch == null) {
+          debugPrint('      ⚠️  No quoted data found');
+          continue;
+        }
+        final logData = dataMatch.group(1)!;
+        
+        debugPrint('      ✓ Extracted - ID: $logId, Data length: ${logData.length}');
+        
         final entry = _parseLogData(logId, logData);
-        if (entry != null) entries.add(entry);
+        if (entry != null) {
+          entries.add(entry);
+          debugPrint('      ✅ Successfully parsed entry for: ${entry.resourceUrl.split('/').last}');
+        } else {
+          debugPrint('      ❌ Failed to parse entry data');
+        }
       }
     }
 
+    debugPrint('   Processed $linesParsed lines with log entries');
     entries.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    debugPrint('📊 Total entries parsed: ${entries.length}');
     
     return entries;
   }
@@ -372,11 +428,37 @@ INSERT DATA {
   static PermissionLogEntry? _parseLogData(String logId, String logData) {
     try {
       final parts = logData.split(';');
-      if (parts.length < 7) return null;
+      if (parts.length < 7) {
+        debugPrint('⚠️  Log data has insufficient parts: ${parts.length}');
+        return null;
+      }
+
+      // Parse timestamp in format: yyyyMMddTHHmmss
+      DateTime? timestamp;
+      try {
+        final timestampStr = parts[0];
+        // Convert 20251026T102958 to 2025-10-26T10:29:58
+        if (timestampStr.length >= 15) {
+          final year = timestampStr.substring(0, 4);
+          final month = timestampStr.substring(4, 6);
+          final day = timestampStr.substring(6, 8);
+          final hour = timestampStr.substring(9, 11);
+          final minute = timestampStr.substring(11, 13);
+          final second = timestampStr.substring(13, 15);
+          final isoFormat = '$year-$month-${day}T$hour:$minute:$second';
+          timestamp = DateTime.parse(isoFormat);
+        } else {
+          debugPrint('⚠️  Invalid timestamp format: $timestampStr');
+          timestamp = DateTime.now(); // Fallback
+        }
+      } catch (e) {
+        debugPrint('⚠️  Error parsing timestamp: $e');
+        timestamp = DateTime.now(); // Fallback
+      }
 
       return PermissionLogEntry(
         id: logId,
-        timestamp: DateTime.parse(parts[0]),
+        timestamp: timestamp,
         resourceUrl: parts[1],
         ownerWebId: parts[2],
         permissionType: parts[3],
@@ -389,7 +471,8 @@ INSERT DATA {
             : null,
       );
     } catch (e) {
-      debugPrint('Error parsing log entry: $e');
+      debugPrint('❌ Error parsing log entry: $e');
+      debugPrint('   Log data: $logData');
       return null;
     }
   }

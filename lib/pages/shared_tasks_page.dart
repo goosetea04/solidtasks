@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import '../services/sharing_service.dart';
+import '../services/permission_log_service.dart';
 import '../services/pod_service.dart';
 import '../services/auth_service.dart';
 import '../models/task.dart';
@@ -15,7 +16,7 @@ class SharedTasksPage extends ConsumerStatefulWidget {
 }
 
 class _SharedTasksPageState extends ConsumerState<SharedTasksPage> {
-  List<SharedResource> _sharedResources = [];
+  List<PermissionLogEntry> _sharedLogs = [];
   bool _isLoading = false;
   String? _currentUserWebId;
 
@@ -36,45 +37,57 @@ class _SharedTasksPageState extends ConsumerState<SharedTasksPage> {
         return;
       }
 
-      // Get current user WebID using the solidpod library
+      // Get current user WebID
       _currentUserWebId = await AuthService.getCurrentUserWebId();
       
-      // Only prompt if getWebId() failed (fallback)
       if (_currentUserWebId == null && mounted) {
         debugPrint('getWebId() returned null, prompting user for WebID');
         _currentUserWebId = await WebIdDialogs.promptForWebId(context);
       }
       
       if (_currentUserWebId != null) {
-        debugPrint('Loading shared resources for: $_currentUserWebId');
-        final resources = await SharingService.getSharedResources(_currentUserWebId!);
-        setState(() => _sharedResources = resources);
+        debugPrint('📖 Loading shared resources from permission logs for: $_currentUserWebId');
         
-        if (resources.isEmpty) {
-          debugPrint('No shared resources found');
+        // Load from permission logs instead of inbox
+        final allLogs = await PermissionLogService.fetchUserLogs();
+        debugPrint('📊 Total logs fetched: ${allLogs.length}');
+        
+        // Filter for shares where current user is the recipient
+        _sharedLogs = allLogs.where((log) {
+          final isRecipient = log.recipientWebId == _currentUserWebId;
+          final isGrant = log.permissionType == 'grant';
+          debugPrint('   Log ${log.id}: recipient=${log.recipientWebId}, isRecipient=$isRecipient, isGrant=$isGrant');
+          return isRecipient && isGrant;
+        }).toList();
+        
+        setState(() {});
+        
+        if (_sharedLogs.isEmpty) {
+          debugPrint('❌ No shared resources found in logs');
         } else {
-          debugPrint('Found ${resources.length} shared resources');
+          debugPrint('✅ Found ${_sharedLogs.length} shared resources');
+          for (final log in _sharedLogs) {
+            debugPrint('   - ${log.resourceUrl} from ${log.granterWebId}');
+          }
         }
       } else {
         _showSnackBar('WebID is required to view shared tasks', Colors.red);
       }
     } catch (e) {
-      debugPrint('Error loading shared tasks: $e');
+      debugPrint('❌ Error loading shared tasks: $e');
       _showSnackBar('Failed to load shared tasks: $e', Colors.red);
     } finally {
       setState(() => _isLoading = false);
     }
   }
 
-  Future<String?> _getCurrentUserWebId() async {
-    return await AuthService.getCurrentUserWebId();
-  }
-
-  Future<Task?> _loadTaskFromResource(SharedResource resource) async {
+  Future<Task?> _loadTaskFromResource(PermissionLogEntry logEntry) async {
     try {
-      final (:accessToken, :dPopToken) = await getTokensForResource(resource.resourceUrl, 'GET');
+      debugPrint('🔄 Attempting to load task from: ${logEntry.resourceUrl}');
+      
+      final (:accessToken, :dPopToken) = await getTokensForResource(logEntry.resourceUrl, 'GET');
       final response = await http.get(
-        Uri.parse(resource.resourceUrl),
+        Uri.parse(logEntry.resourceUrl),
         headers: {
           'Accept': 'application/ld+json, text/turtle',
           'Authorization': 'DPoP $accessToken',
@@ -82,11 +95,17 @@ class _SharedTasksPageState extends ConsumerState<SharedTasksPage> {
         },
       );
 
+      debugPrint('   Response status: ${response.statusCode}');
+      
       if (response.statusCode == 200) {
-        return _parseTaskFromRdf(response.body, resource.resourceUrl);
+        debugPrint('   ✅ Task loaded successfully');
+        return _parseTaskFromRdf(response.body, logEntry.resourceUrl);
+      } else {
+        debugPrint('   ❌ Failed to load task: ${response.statusCode}');
+        debugPrint('   Response: ${response.body}');
       }
     } catch (e) {
-      debugPrint('Error loading task from ${resource.resourceUrl}: $e');
+      debugPrint('❌ Error loading task from ${logEntry.resourceUrl}: $e');
     }
     return null;
   }
@@ -107,61 +126,79 @@ class _SharedTasksPageState extends ConsumerState<SharedTasksPage> {
     );
   }
 
-  Future<void> _acceptShare(SharedResource resource) async {
+  Future<void> _acceptShare(PermissionLogEntry logEntry) async {
     try {
-      final canAccess = await SharingService.canAccessResource(resource.resourceUrl, _currentUserWebId!);
+      debugPrint('🔍 Testing access to: ${logEntry.resourceUrl}');
+      
+      final canAccess = await SharingService.canAccessResource(
+        logEntry.resourceUrl, 
+        _currentUserWebId!
+      );
       
       if (canAccess) {
+        debugPrint('✅ Access confirmed!');
         _showSnackBar('Task is accessible!', Colors.green);
-        await _addToLocalTasks(resource);
+        await _addToLocalTasks(logEntry);
       } else {
+        debugPrint('❌ Access denied');
         _showSnackBar('Access denied to task', Colors.red);
       }
     } catch (e) {
+      debugPrint('❌ Error testing access: $e');
       _showSnackBar('Error testing access: $e', Colors.red);
     }
   }
 
-  Future<void> _addToLocalTasks(SharedResource resource) async {
+  Future<void> _addToLocalTasks(PermissionLogEntry logEntry) async {
     try {
-      final task = await _loadTaskFromResource(resource);
+      final task = await _loadTaskFromResource(logEntry);
       if (task != null) {
         // Add to local state
         _showSnackBar('Task added to your list', Colors.green);
+        debugPrint('✅ Task added: ${task.title}');
+      } else {
+        _showSnackBar('Could not load task data', Colors.red);
       }
     } catch (e) {
+      debugPrint('❌ Failed to add task locally: $e');
       _showSnackBar('Failed to add task locally: $e', Colors.red);
     }
   }
 
-  Future<void> _declineShare(SharedResource resource) async {
+  Future<void> _declineShare(PermissionLogEntry logEntry) async {
     setState(() {
-      _sharedResources.removeWhere((r) => r.id == resource.id);
+      _sharedLogs.removeWhere((l) => l.id == logEntry.id);
     });
     _showSnackBar('Share declined', Colors.orange);
   }
 
-  Future<void> _openTask(SharedResource resource) async {
+  Future<void> _openTask(PermissionLogEntry logEntry) async {
     try {
-      final canAccess = await SharingService.canAccessResource(resource.resourceUrl, _currentUserWebId!);
+      debugPrint('🔍 Opening task: ${logEntry.resourceUrl}');
+      
+      final canAccess = await SharingService.canAccessResource(
+        logEntry.resourceUrl, 
+        _currentUserWebId!
+      );
       
       if (!canAccess) {
         _showSnackBar('No access to this task', Colors.red);
         return;
       }
 
-      final task = await _loadTaskFromResource(resource);
+      final task = await _loadTaskFromResource(logEntry);
       if (task != null) {
-        _showTaskDialog(task, resource);
+        _showTaskDialog(task, logEntry);
       } else {
         _showSnackBar('Could not load task data', Colors.red);
       }
     } catch (e) {
+      debugPrint('❌ Error opening task: $e');
       _showSnackBar('Error opening task: $e', Colors.red);
     }
   }
 
-  void _showTaskDialog(Task task, SharedResource resource) {
+  void _showTaskDialog(Task task, PermissionLogEntry logEntry) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -170,13 +207,10 @@ class _SharedTasksPageState extends ConsumerState<SharedTasksPage> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Shared by: ${_extractName(resource.sharedBy)}'),
-            Text('Permission: ${resource.shareType}'),
-            Text('Shared: ${_formatDate(resource.timestamp)}'),
-            if (resource.message != null) ...[
-              const SizedBox(height: 8),
-              Text('Message: ${resource.message}'),
-            ],
+            Text('Shared by: ${_extractName(logEntry.granterWebId)}'),
+            Text('Permission: ${logEntry.permissions.join(", ")}'),
+            Text('Shared: ${_formatDate(logEntry.timestamp)}'),
+            Text('Pattern: ${logEntry.acpPattern}'),
             const Divider(),
             Text('Task Status: ${task.isDone ? 'Completed ✓' : 'Pending'}'),
             if (task.description != null)
@@ -190,11 +224,11 @@ class _SharedTasksPageState extends ConsumerState<SharedTasksPage> {
             onPressed: () => Navigator.pop(context),
             child: const Text('Close'),
           ),
-          if (resource.shareType == 'write' || resource.shareType == 'control')
+          if (logEntry.permissions.contains('write') || logEntry.permissions.contains('control'))
             ElevatedButton(
               onPressed: () {
                 Navigator.pop(context);
-                _addToLocalTasks(resource);
+                _addToLocalTasks(logEntry);
               },
               child: const Text('Add to My Tasks'),
             ),
@@ -203,7 +237,7 @@ class _SharedTasksPageState extends ConsumerState<SharedTasksPage> {
     );
   }
 
-  Widget _buildTaskCard(SharedResource resource) {
+  Widget _buildTaskCard(PermissionLogEntry logEntry) {
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Padding(
@@ -217,11 +251,11 @@ class _SharedTasksPageState extends ConsumerState<SharedTasksPage> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Task: ${resource.resourceUrl.split('/').last.replaceAll('.ttl', '')}',
+                    'Task: ${logEntry.resourceUrl.split('/').last.replaceAll('.ttl', '')}',
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                 ),
-                _buildPermissionChip(resource.shareType),
+                _buildPermissionChip(logEntry.permissions),
               ],
             ),
             const SizedBox(height: 12),
@@ -229,7 +263,7 @@ class _SharedTasksPageState extends ConsumerState<SharedTasksPage> {
               children: [
                 Icon(Icons.person, size: 16, color: Colors.grey[600]),
                 const SizedBox(width: 4),
-                Text('From: ${_extractName(resource.sharedBy)}'),
+                Text('From: ${_extractName(logEntry.granterWebId)}'),
               ],
             ),
             const SizedBox(height: 4),
@@ -237,37 +271,23 @@ class _SharedTasksPageState extends ConsumerState<SharedTasksPage> {
               children: [
                 Icon(Icons.schedule, size: 16, color: Colors.grey[600]),
                 const SizedBox(width: 4),
-                Text('Shared: ${_formatDate(resource.timestamp)}'),
+                Text('Shared: ${_formatDate(logEntry.timestamp)}'),
               ],
             ),
-            if (resource.message != null) ...[
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.grey[100],
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.message, size: 16, color: Colors.grey[600]),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        resource.message!,
-                        style: const TextStyle(fontStyle: FontStyle.italic),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Icon(Icons.security, size: 16, color: Colors.grey[600]),
+                const SizedBox(width: 4),
+                Text('Pattern: ${logEntry.acpPattern}'),
+              ],
+            ),
             const SizedBox(height: 16),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
                 OutlinedButton.icon(
-                  onPressed: () => _declineShare(resource),
+                  onPressed: () => _declineShare(logEntry),
                   icon: const Icon(Icons.close, size: 18),
                   label: const Text('Decline'),
                   style: OutlinedButton.styleFrom(
@@ -275,12 +295,12 @@ class _SharedTasksPageState extends ConsumerState<SharedTasksPage> {
                   ),
                 ),
                 OutlinedButton.icon(
-                  onPressed: () => _openTask(resource),
+                  onPressed: () => _openTask(logEntry),
                   icon: const Icon(Icons.visibility, size: 18),
                   label: const Text('View'),
                 ),
                 ElevatedButton.icon(
-                  onPressed: () => _acceptShare(resource),
+                  onPressed: () => _acceptShare(logEntry),
                   icon: const Icon(Icons.check, size: 18),
                   label: const Text('Accept'),
                   style: ElevatedButton.styleFrom(
@@ -296,31 +316,27 @@ class _SharedTasksPageState extends ConsumerState<SharedTasksPage> {
     );
   }
 
-  Widget _buildPermissionChip(String shareType) {
+  Widget _buildPermissionChip(List<String> permissions) {
     Color color;
     IconData icon;
     String label;
     
-    switch (shareType) {
-      case 'read':
-        color = Colors.blue;
-        icon = Icons.visibility;
-        label = 'View Only';
-        break;
-      case 'write':
-        color = Colors.orange;
-        icon = Icons.edit;
-        label = 'Can Edit';
-        break;
-      case 'control':
-        color = Colors.red;
-        icon = Icons.admin_panel_settings;
-        label = 'Full Access';
-        break;
-      default:
-        color = Colors.grey;
-        icon = Icons.help;
-        label = 'Unknown';
+    if (permissions.contains('control')) {
+      color = Colors.red;
+      icon = Icons.admin_panel_settings;
+      label = 'Full Access';
+    } else if (permissions.contains('write')) {
+      color = Colors.orange;
+      icon = Icons.edit;
+      label = 'Can Edit';
+    } else if (permissions.contains('read')) {
+      color = Colors.blue;
+      icon = Icons.visibility;
+      label = 'View Only';
+    } else {
+      color = Colors.grey;
+      icon = Icons.help;
+      label = 'Unknown';
     }
 
     return Chip(
@@ -334,6 +350,11 @@ class _SharedTasksPageState extends ConsumerState<SharedTasksPage> {
   String _extractName(String webId) {
     final uri = Uri.tryParse(webId);
     if (uri != null) {
+      // Extract pod name from URL
+      final pathSegments = uri.pathSegments;
+      if (pathSegments.isNotEmpty) {
+        return pathSegments.first.toUpperCase();
+      }
       return uri.host.split('.').first.toUpperCase();
     }
     return webId;
@@ -379,16 +400,16 @@ class _SharedTasksPageState extends ConsumerState<SharedTasksPage> {
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : _sharedResources.isEmpty
+          : _sharedLogs.isEmpty
               ? _buildEmptyState()
               : Column(
                   children: [
                     _buildHeader(),
                     Expanded(
                       child: ListView.builder(
-                        itemCount: _sharedResources.length,
+                        itemCount: _sharedLogs.length,
                         itemBuilder: (context, index) {
-                          return _buildTaskCard(_sharedResources[index]);
+                          return _buildTaskCard(_sharedLogs[index]);
                         },
                       ),
                     ),
@@ -400,13 +421,34 @@ class _SharedTasksPageState extends ConsumerState<SharedTasksPage> {
   Widget _buildHeader() {
     return Container(
       padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.blue.withOpacity(0.1),
+        border: Border(
+          bottom: BorderSide(color: Colors.grey.shade300),
+        ),
+      ),
       child: Row(
         children: [
           Icon(Icons.share, color: Theme.of(context).primaryColor),
           const SizedBox(width: 8),
-          Text(
-            '${_sharedResources.length} task${_sharedResources.length == 1 ? '' : 's'} shared with you',
-            style: Theme.of(context).textTheme.titleMedium,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${_sharedLogs.length} task${_sharedLogs.length == 1 ? '' : 's'} shared with you',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Text(
+                  'From permission logs',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -443,6 +485,18 @@ class _SharedTasksPageState extends ConsumerState<SharedTasksPage> {
             icon: const Icon(Icons.refresh),
             label: const Text('Check for Shares'),
           ),
+          const SizedBox(height: 16),
+          if (_currentUserWebId != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Text(
+                'Checking logs for:\n${_extractName(_currentUserWebId!)}',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Colors.grey[500],
+                ),
+              ),
+            ),
         ],
       ),
     );
