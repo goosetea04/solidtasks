@@ -1,15 +1,14 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:solidpod/solidpod.dart';
+import 'pod_utils.dart';
 
 Future<LoadedTasks> loadServerTaskData(
   BuildContext context,
   Widget childPage,
 ) async {
   final loggedIn = await loginIfRequired(context);
-  String webId = await getWebId() as String;
-  webId = webId.replaceAll(profCard, '');
+  String webId = await PodUtils.getCurrentWebIdClean();
 
   String taskJsonStr = '';
 
@@ -21,7 +20,7 @@ Future<LoadedTasks> loadServerTaskData(
     final acrUrl = taskFileUrl + '.acr';
     final acrBody = _defaultAcrForAllTasks(webId);
 
-    bool resExist = await checkResourceStatus(taskFileUrl);
+    bool resExist = await PodUtils.checkResourceExists(taskFileUrl);
 
     if (resExist) {
       taskJsonStr = await readPod(
@@ -59,10 +58,7 @@ Future<bool> saveServerTaskData(
   Widget childPage,
 ) async {
   final loggedIn = await loginIfRequired(context);
-  String webId = await getWebId() as String;
-  webId = webId.replaceAll(profCard, '');
-
-  // Map taskMap = {};
+  String webId = await PodUtils.getCurrentWebIdClean();
 
   if (loggedIn) {
 
@@ -85,31 +81,20 @@ Future<bool> saveServerTaskData(
   }
 }
 
-// Check if a resource exists in the Pod
-Future<bool> checkResourceStatus(String resUrl, {bool fileFlag = true}) async {
-  final (:accessToken, :dPopToken) = await getTokensForResource(resUrl, 'GET');
-  final response = await http.get(
-    Uri.parse(resUrl),
-    headers: <String, String>{
-      'Content-Type': fileFlag ? '*/*' : 'application/octet-stream',
-      'Authorization': 'DPoP $accessToken',
-      'Link': fileFlag
-          ? '<http://www.w3.org/ns/ldp#Resource>; rel="type"'
-          : '<http://www.w3.org/ns/ldp#BasicContainer>; rel="type"',
-      'DPoP': dPopToken,
-    },
-  );
+// Helper function for default ACR (kept for backward compatibility)
+String _defaultAcrForAllTasks(String webId) {
+  // This is a simplified ACR - you may want to use AcpPresets instead
+  return '''@prefix acp: <http://www.w3.org/ns/solid/acp#> .
+@prefix acl: <http://www.w3.org/ns/auth/acl#> .
 
-  if (response.statusCode == 200 || response.statusCode == 204) {
-    return true;
-  } else if (response.statusCode == 404) {
-    return false;
-  } else {
-    debugPrint(
-      'Failed to check resource status.\n'
-      'URL: $resUrl\n'
-      'ERR: ${response.body}',
-    );
-    return false;
-  }
+<> a acp:AccessControlResource ;
+   acp:accessControl <#ownerAccess> .
+
+<#ownerAccess> a acp:AccessControl ;
+   acp:apply <#ownerPolicy> .
+
+<#ownerPolicy> a acp:Policy ;
+   acp:allow acl:Read, acl:Write, acl:Control ;
+   acp:anyOf ( <$webId${PodUtils.profCard}> ) .
+''';
 }

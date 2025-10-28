@@ -344,6 +344,7 @@ class PodUtils {
   // TASK-SPECIFIC HELPERS
   
   /// Generate filename for a task based on its ID
+  static String taskFileName(String taskId) {
     return '$taskPrefix$taskId$taskExt';
   }
   
