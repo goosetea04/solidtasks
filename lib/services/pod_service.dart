@@ -191,6 +191,7 @@ static Future<String?> _httpGetTextTurtle(String fullUrl) async {
 
 
   /// Sync local tasks to the POD using one file per task.
+  /// Sync local tasks to the POD using one file per task.
   static Future<void> saveTasks(List<Task> tasks, BuildContext context, StatefulWidget widget) async {
     debugPrint('Starting per-task sync to POD... (#${tasks.length})');
 
@@ -233,14 +234,12 @@ static Future<String?> _httpGetTextTurtle(String fullUrl) async {
         final ownerWebId = await currentWebId();
         final fileUrl = '$fullDirPath$fileName';
 
-        // Generate preset ACR string
-        final collaboratorWebId = "https://pods.acp.solidcommunity.au/acptest2/profile/card#me";
-
+        // Set ACR with only owner permissions (no collaborators)
         await AcpPresets.writeAcrForResource(
           fileUrl,
           ownerWebId,
-          allowReadWebIds: [collaboratorWebId],
-          allowWriteWebIds: [collaboratorWebId],
+          allowReadWebIds: [],
+          allowWriteWebIds: [],
         );
 
         try {
@@ -249,17 +248,20 @@ static Future<String?> _httpGetTextTurtle(String fullUrl) async {
         } catch (e) {
           debugPrint('No .acl file to delete: $e');
         }
+        
+        debugPrint('ACR set for $fileName (owner only)');
+        
+        // Log the initial resource creation with owner permissions
         await PermissionLogService.logPermissionChange(
           resourceUrl: fileUrl,
           ownerWebId: ownerWebId,
           granterWebId: ownerWebId,
-          recipientWebId: collaboratorWebId,
+          recipientWebId: ownerWebId,
           permissionList: ['read', 'write'],
           permissionType: 'grant',
           acpPattern: 'basic',
         );
       }
-
     }
     debugPrint('Per-task sync complete.');
   }

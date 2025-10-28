@@ -99,57 +99,144 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
   void _shareTask(String id) => _showShareDialog(id);
 
   void _showShareDialog(String taskId) {
-    final recipientController = TextEditingController();
+    final serverController = TextEditingController(text: 'pods.acp.solidcommunity.au');
+    final usernameController = TextEditingController();
     final messageController = TextEditingController();
     String shareType = 'read';
     String acpPattern = 'basic';
+    String constructedWebId = '';
+
+    String buildWebId(String server, String username) {
+      if (server.isEmpty || username.isEmpty) return '';
+      return 'https://$server/$username/profile/card#me';
+    }
 
     showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          title: const Text('Share Task'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _buildTextField(recipientController, 'Recipient WebID'),
-              _buildTextField(messageController, 'Message (optional)'),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                value: shareType,
-                decoration: const InputDecoration(labelText: 'Share Type'),
-                items: const [
-                  DropdownMenuItem(value: 'read', child: Text('Read Only')),
-                  DropdownMenuItem(value: 'write', child: Text('Read & Write')),
-                  DropdownMenuItem(value: 'control', child: Text('Full Control')),
+        builder: (context, setState) {
+          constructedWebId = buildWebId(serverController.text.trim(), usernameController.text.trim());
+          
+          return AlertDialog(
+            title: const Text('Share Task'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Recipient Details:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: serverController,
+                    decoration: const InputDecoration(
+                      labelText: 'Server',
+                      hintText: 'pods.acp.solidcommunity.au',
+                      prefixIcon: Icon(Icons.dns),
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: usernameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Username',
+                      hintText: 'acptest1',
+                      prefixIcon: Icon(Icons.person),
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                  if (constructedWebId.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[100],
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.grey[300]!),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Row(
+                            children: [
+                              Icon(Icons.link, size: 16, color: Colors.green),
+                              SizedBox(width: 4),
+                              Text('WebID:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            constructedWebId,
+                            style: const TextStyle(fontSize: 11, color: Colors.black87),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: messageController,
+                    decoration: const InputDecoration(
+                      labelText: 'Message (optional)',
+                      hintText: 'Add a message...',
+                      prefixIcon: Icon(Icons.message),
+                      border: OutlineInputBorder(),
+                    ),
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 16),
+                  const Text('Permissions:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    value: shareType,
+                    decoration: const InputDecoration(
+                      labelText: 'Share Type',
+                      prefixIcon: Icon(Icons.lock),
+                      border: OutlineInputBorder(),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'read', child: Text('Read Only')),
+                      DropdownMenuItem(value: 'write', child: Text('Read & Write')),
+                      DropdownMenuItem(value: 'control', child: Text('Full Control')),
+                    ],
+                    onChanged: (value) => setState(() => shareType = value!),
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    value: acpPattern,
+                    decoration: const InputDecoration(
+                      labelText: 'Access Pattern',
+                      prefixIcon: Icon(Icons.security),
+                      border: OutlineInputBorder(),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'basic', child: Text('Basic Sharing')),
+                      DropdownMenuItem(value: 'app_scoped', child: Text('App-Scoped')),
+                      DropdownMenuItem(value: 'delegated_sharing', child: Text('Delegated')),
+                      DropdownMenuItem(value: 'role_based', child: Text('Role-Based')),
+                    ],
+                    onChanged: (value) => setState(() => acpPattern = value!),
+                  ),
                 ],
-                onChanged: (value) => setState(() => shareType = value!),
               ),
-              const SizedBox(height: 8),
-              DropdownButtonFormField<String>(
-                value: acpPattern,
-                decoration: const InputDecoration(labelText: 'Access Pattern'),
-                items: const [
-                  DropdownMenuItem(value: 'basic', child: Text('Basic Sharing')),
-                  DropdownMenuItem(value: 'app_scoped', child: Text('App-Scoped')),
-                  DropdownMenuItem(value: 'delegated_sharing', child: Text('Delegated')),
-                  DropdownMenuItem(value: 'role_based', child: Text('Role-Based')),
-                ],
-                onChanged: (value) => setState(() => acpPattern = value!),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: constructedWebId.isEmpty ? null : () async {
+                  await _shareTaskWithUser(taskId, constructedWebId, shareType, acpPattern, messageController.text.trim());
+                  Navigator.pop(context);
+                },
+                child: const Text('Share'),
               ),
             ],
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-            ElevatedButton(
-              onPressed: () async {
-                await _shareTaskWithUser(taskId, recipientController.text.trim(), shareType, acpPattern, messageController.text.trim());
-                Navigator.pop(context);
-              },
-              child: const Text('Share'),
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
