@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:solidpod/solidpod.dart';
+import '../utils/pod_utils.dart';
 
 /// ACP Service for Community Solid Server v7.1.7
 /// 
@@ -107,8 +108,8 @@ class AcpService {
     required List<String> allowReadWebIds,
     required String allowedClientId,
   }) {
-    final ownerNormalized = _normalizeWebId(ownerWebId);
-    final readNormalized = allowReadWebIds.map(_normalizeWebId).toList();
+    final ownerNormalized = PodUtils.normalizeWebId(ownerWebId);
+    final readNormalized = allowReadWebIds.map(PodUtils.normalizeWebId).toList();
     
     final readAgents = [ownerNormalized, ...readNormalized]
         .map((id) => '<$id>')
@@ -157,13 +158,13 @@ class AcpService {
     String managerWebId, {
     required List<String> contractorWebIds,
   }) {
-    final ownerNormalized = _normalizeWebId(ownerWebId);
-    final managerNormalized = _normalizeWebId(managerWebId);
+    final ownerNormalized = PodUtils.normalizeWebId(ownerWebId);
+    final managerNormalized = PodUtils.normalizeWebId(managerWebId);
     final timestamp = DateTime.now().toUtc().toIso8601String();
     
     final contractorSection = contractorWebIds.isEmpty ? '' : '''
 <#contractorMatcher> a acp:Matcher ;
-   acp:agent ${contractorWebIds.map((id) => '<${_normalizeWebId(id)}>').join(', ')} .
+   acp:agent ${contractorWebIds.map((id) => '<${PodUtils.normalizeWebId(id)}>').join(', ')} .
 
 <#contractorAccess> a acp:AccessControl ;
    acp:apply <#contractorPolicy> .
@@ -216,12 +217,12 @@ $contractorSection''';
     required List<String> reviewerWebIds,
     required List<String> contributorWebIds,
   }) {
-    final ownerNormalized = _normalizeWebId(ownerWebId);
+    final ownerNormalized = PodUtils.normalizeWebId(ownerWebId);
     final timestamp = DateTime.now().toUtc().toIso8601String();
     
     final adminSection = adminWebIds.isEmpty ? '' : '''
 <#adminMatcher> a acp:Matcher ;
-   acp:agent ${adminWebIds.map((id) => '<${_normalizeWebId(id)}>').join(', ')} .
+   acp:agent ${adminWebIds.map((id) => '<${PodUtils.normalizeWebId(id)}>').join(', ')} .
 
 <#adminAccess> a acp:AccessControl ;
    acp:apply <#adminPolicy> .
@@ -234,7 +235,7 @@ $contractorSection''';
 
     final reviewerSection = reviewerWebIds.isEmpty ? '' : '''
 <#reviewerMatcher> a acp:Matcher ;
-   acp:agent ${reviewerWebIds.map((id) => '<${_normalizeWebId(id)}>').join(', ')} .
+   acp:agent ${reviewerWebIds.map((id) => '<${PodUtils.normalizeWebId(id)}>').join(', ')} .
 
 <#reviewerAccess> a acp:AccessControl ;
    acp:apply <#reviewerPolicy> .
@@ -247,7 +248,7 @@ $contractorSection''';
 
     final contributorSection = contributorWebIds.isEmpty ? '' : '''
 <#contributorMatcher> a acp:Matcher ;
-   acp:agent ${contributorWebIds.map((id) => '<${_normalizeWebId(id)}>').join(', ')} .
+   acp:agent ${contributorWebIds.map((id) => '<${PodUtils.normalizeWebId(id)}>').join(', ')} .
 
 <#contributorAccess> a acp:AccessControl ;
    acp:apply <#contributorPolicy> .
@@ -289,11 +290,11 @@ $adminSection$reviewerSection$contributorSection''';
     required List<String> defaultReadWebIds,
     required List<String> defaultWriteWebIds,
   }) {
-    final ownerNormalized = _normalizeWebId(ownerWebId);
+    final ownerNormalized = PodUtils.normalizeWebId(ownerWebId);
     
     final readSection = defaultReadWebIds.isEmpty ? '' : '''
 <#defaultReadMatcher> a acp:Matcher ;
-   acp:agent ${defaultReadWebIds.map((id) => '<${_normalizeWebId(id)}>').join(', ')} .
+   acp:agent ${defaultReadWebIds.map((id) => '<${PodUtils.normalizeWebId(id)}>').join(', ')} .
 
 <#defaultReadAccess> a acp:AccessControl ;
    acp:apply <#defaultReadPolicy> .
@@ -305,7 +306,7 @@ $adminSection$reviewerSection$contributorSection''';
 
     final writeSection = defaultWriteWebIds.isEmpty ? '' : '''
 <#defaultWriteMatcher> a acp:Matcher ;
-   acp:agent ${defaultWriteWebIds.map((id) => '<${_normalizeWebId(id)}>').join(', ')} .
+   acp:agent ${defaultWriteWebIds.map((id) => '<${PodUtils.normalizeWebId(id)}>').join(', ')} .
 
 <#defaultWriteAccess> a acp:AccessControl ;
    acp:apply <#defaultWritePolicy> .
@@ -361,29 +362,11 @@ $readSection$writeSection''';
   static Future<String?> fetchAcr(String resourceUrl) async {
     try {
       final acrUrl = '$resourceUrl.acr';
-      final (:accessToken, :dPopToken) = await getTokensForResource(acrUrl, 'GET');
-      final res = await http.get(
-        Uri.parse(acrUrl),
-        headers: {
-          'Accept': 'text/turtle',
-          'Authorization': 'DPoP $accessToken',
-          'DPoP': dPopToken,
-        },
-      );
-      return res.statusCode == 200 ? res.body : null;
+      return await PodUtils.readTurtleContent(acrUrl);
     } catch (e) {
       debugPrint('Error fetching ACR: $e');
       return null;
     }
-  }
-
-  static String _normalizeWebId(String webId) {
-    if (!webId.contains('#')) {
-      return webId.endsWith('/') 
-          ? '${webId}profile/card#me'
-          : '$webId/profile/card#me';
-    }
-    return webId;
   }
 
   /// Basic ACR for simple permission patterns
@@ -413,11 +396,11 @@ $readSection$writeSection''';
     required List<String> allowControlWebIds,
     required bool publicRead,
   }) {
-    final ownerNormalized = _normalizeWebId(ownerWebId);
+    final ownerNormalized = PodUtils.normalizeWebId(ownerWebId);
     
     final readSection = (allowReadWebIds.isNotEmpty || publicRead) ? '''
 <#readMatcher> a acp:Matcher ;
-   acp:agent ${publicRead ? 'acp:PublicAgent' : allowReadWebIds.map((id) => '<${_normalizeWebId(id)}>').join(', ')} .
+   acp:agent ${publicRead ? 'acp:PublicAgent' : allowReadWebIds.map((id) => '<${PodUtils.normalizeWebId(id)}>').join(', ')} .
 
 <#readAccess> a acp:AccessControl ;
    acp:apply <#readPolicy> .
@@ -429,7 +412,7 @@ $readSection$writeSection''';
 
     final writeSection = allowWriteWebIds.isNotEmpty ? '''
 <#writeMatcher> a acp:Matcher ;
-   acp:agent ${allowWriteWebIds.map((id) => '<${_normalizeWebId(id)}>').join(', ')} .
+   acp:agent ${allowWriteWebIds.map((id) => '<${PodUtils.normalizeWebId(id)}>').join(', ')} .
 
 <#writeAccess> a acp:AccessControl ;
    acp:apply <#writePolicy> .

@@ -4,22 +4,9 @@ import 'package:solidpod/solidpod.dart';
 import 'pod_service_acp.dart';
 import 'auth_service.dart';
 import 'permission_log_service.dart';
+import '../utils/pod_utils.dart';
 
 class SharingService {
-  static const String profCard = '/profile/card#me';
-
-  // 🔧 Normalize WebID to ensure consistent format
-  static String _normalizeWebId(String webId) {
-    // Remove profile card suffix if present
-    String normalized = webId.replaceAll(profCard, '');
-    // Ensure trailing slash for base URL
-    if (!normalized.endsWith('/')) {
-      normalized += '/';
-    }
-    // Add back profile card
-    return '$normalized${profCard.substring(1)}'; // Remove leading slash from profCard
-  }
-  
   static Future<void> shareResourceWithUser({
     required String resourceUrl,
     required String ownerWebId,
@@ -30,13 +17,13 @@ class SharingService {
     Map<String, dynamic>? acpOptions,
   }) async {
     try {
-      debugPrint('🔄 Starting share process...');
+      debugPrint('📄 Starting share process...');
       debugPrint('   Resource: $resourceUrl');
       debugPrint('   Owner: $ownerWebId');
       debugPrint('   Recipient: $recipientWebId');
       
       // 🔧 Normalize the recipient WebID before storing in log
-      final normalizedRecipient = _normalizeWebId(recipientWebId);
+      final normalizedRecipient = PodUtils.normalizeWebId(recipientWebId);
       debugPrint('   Normalized recipient: $normalizedRecipient');
       
       // Apply ACP policy based on pattern
@@ -150,7 +137,7 @@ class SharingService {
       debugPrint('   Inbox URL: ${inboxUrl ?? "NOT FOUND"}');
       
       if (inboxUrl == null) {
-        debugPrint('⚠️  Could not find inbox for $recipientWebId');
+        debugPrint('⚠️ Could not find inbox for $recipientWebId');
         // Don't throw - inbox is optional
         return;
       }
@@ -168,7 +155,7 @@ class SharingService {
       debugPrint('✅ Notification sent successfully');
       
     } catch (e) {
-      debugPrint('⚠️  Error sending sharing notification: $e');
+      debugPrint('⚠️ Error sending sharing notification: $e');
       // Don't rethrow - notification is optional
     }
   }
@@ -177,21 +164,11 @@ class SharingService {
   static Future<String?> _discoverInboxUrl(String webId) async {
     try {
       final profileUrl = webId.contains('#') ? webId.split('#')[0] : webId;
-      final (:accessToken, :dPopToken) = await getTokensForResource(profileUrl, 'GET');
+      final content = await PodUtils.readTurtleContent(profileUrl);
       
-      final response = await http.get(
-        Uri.parse(profileUrl),
-        headers: {
-          'Accept': 'text/turtle, application/ld+json',
-          'Authorization': 'DPoP $accessToken',
-          'DPoP': dPopToken,
-        },
-      );
-
-      if (response.statusCode != 200) return null;
+      if (content == null) return null;
 
       // Simple pattern matching for inbox
-      final content = response.body;
       final inboxPattern = RegExp(r'<([^>]+)>\s+a\s+<http://www\.w3\.org/ns/ldp#inbox>');
       final match = inboxPattern.firstMatch(content);
       
@@ -298,7 +275,7 @@ class SharingService {
       debugPrint('🔍 Getting shared resources for: $userWebId');
       
       // Normalize the user's WebID
-      final normalizedUserWebId = _normalizeWebId(userWebId);
+      final normalizedUserWebId = PodUtils.normalizeWebId(userWebId);
       debugPrint('   Normalized: $normalizedUserWebId');
       
       // Get permission logs instead of inbox
@@ -307,7 +284,7 @@ class SharingService {
       
       // Filter for grants where user is recipient
       final relevantLogs = logs.where((log) =>
-        _normalizeWebId(log.recipientWebId) == normalizedUserWebId &&
+        PodUtils.normalizeWebId(log.recipientWebId) == normalizedUserWebId &&
         log.permissionType == 'grant'
       ).toList();
       
@@ -330,41 +307,10 @@ class SharingService {
     }
   }
 
-  /// Parse shared resources from inbox (DEPRECATED - use permission logs)
-  static List<SharedResource> _parseSharedResources(String inboxContent, String userWebId) {
-    final resources = <SharedResource>[];
-    
-    final sharePattern = RegExp(
-      r'<([^>]+)>\s+a\s+as:Announce\s*;.*?as:object\s+<([^>]+)>.*?as:actor\s+<([^>]+)>',
-      multiLine: true,
-      dotAll: true,
-    );
-
-    final matches = sharePattern.allMatches(inboxContent);
-    for (final match in matches) {
-      final notificationId = match.group(1);
-      final resourceUrl = match.group(2);
-      final actorWebId = match.group(3);
-      
-      if (notificationId != null && resourceUrl != null && actorWebId != null) {
-        resources.add(SharedResource(
-          id: notificationId,
-          resourceUrl: resourceUrl,
-          sharedBy: actorWebId,
-          sharedWith: userWebId,
-          shareType: 'read',
-          timestamp: DateTime.now(),
-        ));
-      }
-    }
-    
-    return resources;
-  }
-
   /// Test if user has access to a resource
   static Future<bool> canAccessResource(String resourceUrl, String userWebId) async {
     try {
-      debugPrint('🔐 Testing access to: $resourceUrl');
+      debugPrint('🔍 Testing access to: $resourceUrl');
       final (:accessToken, :dPopToken) = await getTokensForResource(resourceUrl, 'GET');
       final response = await http.head(
         Uri.parse(resourceUrl),
