@@ -2,8 +2,9 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:solidpod/solidpod.dart';
+import '../utils/pod_utils.dart';
 
-// Permission log literals for ACP-based sharing
+// Permission log for ACP-based sharing
 enum PermissionLogLiteral {
   logtime('logtime'),
   resource('resource'),
@@ -22,22 +23,6 @@ enum PermissionLogLiteral {
 
 // Service for managing permission logs in ACP environment
 class PermissionLogService {
-  static const String profCard = '/profile/card#me';
-  static const String logsDirRel = '/solidtasks/logs/';
-  static const String permLogFile = 'permissions-log.ttl';
-
-  // Generate namespace URIs based on user's WebID
-  static String _getLogNamespace(String webId) {
-    final cleanWebId = webId.replaceAll(profCard, ''); // Example would be https://pods.acp.solidcommunity.au/gooseacp1/
-    debugPrint('Log namespace for $webId is ${cleanWebId}log#');
-    return '${cleanWebId}log#';
-  }
-
-  static String _getDataNamespace(String webId) {
-    final cleanWebId = webId.replaceAll(profCard, '');
-    return '${cleanWebId}data#';
-  }
-
   // Create a permission log entry
   static List<String> createPermLogEntry({
     required List<String> permissionList,
@@ -69,7 +54,8 @@ class PermissionLogService {
     return [logEntryId, logEntryStr];
   }
 
-  /// Add a log entry to relevant log files (owner and granter only)
+  /// Add a log entry to relevant log files (owner, granter, and recipient)
+  /// Server is configured with public agent write access to logs
   static Future<void> logPermissionChange({
     required String resourceUrl,
     required String ownerWebId,
@@ -80,35 +66,81 @@ class PermissionLogService {
     String? acpPattern,
     DateTime? expiryDate,
   }) async {
+    // 🔧 NORMALIZE all WebIDs before comparison
+    final normalizedOwner = PodUtils.normalizeWebId(ownerWebId);
+    final normalizedGranter = PodUtils.normalizeWebId(granterWebId);
+    final normalizedRecipient = PodUtils.normalizeWebId(recipientWebId);
+
+    debugPrint('🔍 Normalized WebIDs:');
+    debugPrint('   Owner: $normalizedOwner');
+    debugPrint('   Granter: $normalizedGranter');
+    debugPrint('   Recipient: $normalizedRecipient');
+
+    final logEntry = createPermLogEntry(
+      permissionList: permissionList,
+      resourceUrl: resourceUrl,
+      ownerWebId: ownerWebId,
+      permissionType: permissionType,
+      granterWebId: granterWebId,
+      recipientWebId: recipientWebId,
+      acpPattern: acpPattern,
+      expiryDate: expiryDate,
+    );
+
+    final logEntryId = logEntry[0];
+    final logEntryStr = logEntry[1];
+
+    // Track which logs succeeded/failed and which were skipped
+    final results = <String, String>{};
+
+    // Write to granter's log
     try {
-      final logEntry = createPermLogEntry(
-        permissionList: permissionList,
-        resourceUrl: resourceUrl,
-        ownerWebId: ownerWebId,
-        permissionType: permissionType,
-        granterWebId: granterWebId,
-        recipientWebId: recipientWebId,
-        acpPattern: acpPattern,
-        expiryDate: expiryDate,
-      );
-
-      final logEntryId = logEntry[0];
-      final logEntryStr = logEntry[1];
-
-      // Write to granter's log
       await _addLogEntry(granterWebId, logEntryId, logEntryStr);
-
-      // Write to owner's log if different from granter
-      if (ownerWebId != granterWebId) {
-        await _addLogEntry(ownerWebId, logEntryId, logEntryStr);
-      }
-
-      // DON'T write to recipient's POD - they don't have permission to let us write there
-      await _addLogEntry(recipientWebId, logEntryId, logEntryStr);
-      
-      debugPrint('Permission log entries created successfully');
+      results['granter'] = 'success';
+      debugPrint('✅ Logged to granter\'s POD: $granterWebId');
     } catch (e) {
-      debugPrint('Error logging permission change: $e');
+      results['granter'] = 'failed: $e';
+      debugPrint('❌ Failed to log to granter\'s POD: $e');
+    }
+
+    // Write to owner's log if different from granter
+    if (normalizedOwner != normalizedGranter) {
+      try {
+        await _addLogEntry(ownerWebId, logEntryId, logEntryStr);
+        results['owner'] = 'success';
+        debugPrint('✅ Logged to owner\'s POD: $ownerWebId');
+      } catch (e) {
+        results['owner'] = 'failed: $e';
+        debugPrint('❌ Failed to log to owner\'s POD: $e');
+      }
+    } else {
+      results['owner'] = 'skipped (same as granter)';
+      debugPrint('⏭️ Skipped owner log (same as granter)');
+    }
+
+    // Write to recipient's log (enabled via public agent access)
+    if (normalizedRecipient != normalizedGranter && normalizedRecipient != normalizedOwner) {
+      try {
+        await _addLogEntry(recipientWebId, logEntryId, logEntryStr);
+        results['recipient'] = 'success';
+        debugPrint('Logged to recipient\'s POD: $recipientWebId');
+      } catch (e) {
+        results['recipient'] = 'failed: $e';
+        debugPrint('Failed to log to recipient\'s POD: $e');
+      }
+    } else {
+      results['recipient'] = 'skipped (duplicate)';
+      debugPrint('⏭️ Skipped recipient log (duplicate)');
+    }
+
+    // Log summary
+    final successCount = results.values.where((v) => v == 'success').length;
+    final totalAttempts = results.values.where((v) => v != 'skipped (same as granter)' && v != 'skipped (duplicate)').length;
+    debugPrint('(log) Permission log summary: $successCount/$totalAttempts logs written successfully');
+    debugPrint('   Details: $results');
+    
+    if (successCount == 0 && totalAttempts > 0) {
+      throw Exception('Failed to write to any permission logs');
     }
   }
 
@@ -119,14 +151,14 @@ class PermissionLogService {
     String logEntryStr,
   ) async {
     try {
-      final logFileUrl = await _getLogFileUrl(webId);
+      final logFileUrl = PodUtils.getPermissionLogUrl(webId);
       
       // Ensure log file exists
       await _ensureLogFileExists(logFileUrl, webId);
 
       // Use dynamic namespaces based on the user's WebID
-      final logNamespace = _getLogNamespace(webId);
-      final dataNamespace = _getDataNamespace(webId);
+      final logNamespace = PodUtils.getLogNamespace(webId);
+      final dataNamespace = PodUtils.getDataNamespace(webId);
 
       // Create SPARQL update query with dynamic namespaces
       final insertQuery = '''
@@ -137,7 +169,7 @@ INSERT DATA {
 }
 ''';
 
-      await _updateFileByQuery(logFileUrl, insertQuery);
+      await PodUtils.executeSparqlUpdate(logFileUrl, insertQuery);
       debugPrint('Log entry added to $webId');
     } catch (e) {
       debugPrint('Failed to add log entry for $webId: $e');
@@ -145,30 +177,14 @@ INSERT DATA {
     }
   }
 
-  /// Get log file URL for a user
-  static Future<String> _getLogFileUrl(String webId) async {
-    final cleanWebId = webId.replaceAll(profCard, '');
-    return '$cleanWebId$logsDirRel$permLogFile';
-  }
-
   /// Ensure log file and directory exist
   static Future<void> _ensureLogFileExists(String logFileUrl, String webId) async {
     try {
-      final (:accessToken, :dPopToken) = 
-          await getTokensForResource(logFileUrl, 'GET');
-      
-      final checkRes = await http.get(
-        Uri.parse(logFileUrl),
-        headers: {
-          'Accept': 'text/turtle',
-          'Authorization': 'DPoP $accessToken',
-          'DPoP': dPopToken,
-        },
-      );
+      final exists = await PodUtils.checkResourceExists(logFileUrl);
 
-      if (checkRes.statusCode == 404) {
-        final dirUrl = logFileUrl.substring(0, logFileUrl.lastIndexOf('/') + 1);
-        await _ensureDirectoryExists(dirUrl);
+      if (!exists) {
+        final dirUrl = PodUtils.getParentDirectory(logFileUrl);
+        await PodUtils.ensureDirectoryExists(dirUrl);
         await _createLogFile(logFileUrl, webId);
       }
     } catch (e) {
@@ -179,108 +195,110 @@ INSERT DATA {
 
   /// Create initial log file with proper structure using dynamic namespaces
   static Future<void> _createLogFile(String logFileUrl, String webId) async {
-    final (:accessToken, :dPopToken) = 
-        await getTokensForResource(logFileUrl, 'PUT');
-
-    final logNamespace = _getLogNamespace(webId);
-    final dataNamespace = _getDataNamespace(webId);
-
-    final initialContent = '''@prefix log: <$logNamespace> .
+    try {
+      final logNamespace = PodUtils.getLogNamespace(webId);
+      final dataNamespace = PodUtils.getDataNamespace(webId);
+      
+      final initialContent = '''@prefix log: <$logNamespace> .
 @prefix data: <$dataNamespace> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
-@prefix dct: <http://purl.org/dc/terms/> .
 
-<> a log:PermissionLog ;
-   dct:created "${DateTime.now().toIso8601String()}"^^xsd:dateTime ;
-   dct:title "Permission Log" .
+# Permission log file for $webId
+# Created: ${DateTime.now().toIso8601String()}
 ''';
 
-    final res = await http.put(
-      Uri.parse(logFileUrl),
-      headers: {
-        'Content-Type': 'text/turtle',
-        'Authorization': 'DPoP $accessToken',
-        'DPoP': dPopToken,
-      },
-      body: initialContent,
-    );
-
-    if (![200, 201, 204].contains(res.statusCode)) {
-      throw Exception('Failed to create log file: ${res.statusCode}');
-    }
-    
-    debugPrint('✅ Created log file at $logFileUrl');
-  }
-
-  /// Ensure directory exists
-  static Future<void> _ensureDirectoryExists(String dirUrl) async {
-    try {
-      final (:accessToken, :dPopToken) = 
-          await getTokensForResource(dirUrl, 'GET');
+      final (:accessToken, :dPopToken) = await getTokensForResource(logFileUrl, 'PUT');
       
-      final checkRes = await http.get(
-        Uri.parse(dirUrl),
+      final response = await http.put(
+        Uri.parse(logFileUrl),
         headers: {
-          'Accept': 'text/turtle',
+          'Content-Type': 'text/turtle',
           'Authorization': 'DPoP $accessToken',
           'DPoP': dPopToken,
         },
+        body: initialContent,
       );
 
-      if (checkRes.statusCode == 404) {
-        final createRes = await http.put(
-          Uri.parse(dirUrl),
-          headers: {
-            'Content-Type': 'text/turtle',
-            'Authorization': 'DPoP $accessToken',
-            'DPoP': dPopToken,
-            'Link': '<http://www.w3.org/ns/ldp#BasicContainer>; rel="type"',
-          },
-          body: '''@prefix ldp: <http://www.w3.org/ns/ldp#> .
-<> a ldp:BasicContainer .
-''',
-        );
-
-        if (![200, 201, 204].contains(createRes.statusCode)) {
-          throw Exception('Failed to create directory: ${createRes.statusCode}');
-        }
+      if (![200, 201, 204].contains(response.statusCode)) {
+        throw Exception('Failed to create log file: ${response.statusCode}');
       }
+      
+      debugPrint('Created log file: $logFileUrl');
+      
+      // Set ACR to allow public agent write access (for cross-pod logging)
+      await _setLogFileAcr(logFileUrl, webId);
+      
     } catch (e) {
-      debugPrint('Error ensuring directory exists: $e');
+      debugPrint('Error creating log file: $e');
+      rethrow;
     }
   }
 
-  /// Update file using SPARQL query
-  static Future<void> _updateFileByQuery(
-    String fileUrl,
-    String sparqlQuery,
-  ) async {
-    final (:accessToken, :dPopToken) = 
-        await getTokensForResource(fileUrl, 'PATCH');
+  /// Set ACR for log file to allow public agent write access
+  static Future<void> _setLogFileAcr(String logFileUrl, String webId) async {
+    try {
+      final normalizedWebId = PodUtils.normalizeWebId(webId);
+      final acrUrl = '$logFileUrl.acr';
+      
+      final acrBody = '''@prefix acp: <http://www.w3.org/ns/solid/acp#> .
+@prefix acl: <http://www.w3.org/ns/auth/acl#> .
 
-    final res = await http.patch(
-      Uri.parse(fileUrl),
-      headers: {
-        'Content-Type': 'application/sparql-update',
-        'Authorization': 'DPoP $accessToken',
-        'DPoP': dPopToken,
-      },
-      body: sparqlQuery,
-    );
+<> a acp:AccessControlResource ;
+   acp:accessControl <#ownerAccess>, <#publicWriteAccess> .
 
-    if (![200, 201, 204, 205].contains(res.statusCode)) {
-      throw Exception('Failed to update file: ${res.statusCode}');
+<#ownerMatcher> a acp:Matcher ;
+   acp:agent <$normalizedWebId> .
+
+<#ownerAccess> a acp:AccessControl ;
+   acp:apply <#ownerPolicy> .
+
+<#ownerPolicy> a acp:Policy ;
+   acp:allow acl:Read, acl:Write, acl:Control ;
+   acp:anyOf <#ownerMatcher> .
+
+<#publicMatcher> a acp:Matcher ;
+   acp:agent acp:PublicAgent .
+
+<#publicWriteAccess> a acp:AccessControl ;
+   acp:apply <#publicPolicy> .
+
+<#publicPolicy> a acp:Policy ;
+   acp:allow acl:Write, acl:Append ;
+   acp:anyOf <#publicMatcher> .
+''';
+
+      final (:accessToken, :dPopToken) = await getTokensForResource(acrUrl, 'PUT');
+      
+      final response = await http.put(
+        Uri.parse(acrUrl),
+        headers: {
+          'Content-Type': 'text/turtle',
+          'Authorization': 'DPoP $accessToken',
+          'DPoP': dPopToken,
+        },
+        body: acrBody,
+      );
+
+      if (![200, 201, 204].contains(response.statusCode)) {
+        throw Exception('Failed to set log file ACR: ${response.statusCode}');
+      }
+      
+      debugPrint('Set ACR for log file with public write access');
+      
+    } catch (e) {
+      debugPrint('Error setting log file ACR: $e');
+      rethrow;
     }
   }
 
-  /// Fetch permission logs for current user
+  /// Fetch user's permission logs
   static Future<List<PermissionLogEntry>> fetchUserLogs() async {
     try {
       final webId = await getWebId();
       if (webId == null) return [];
 
-      final logFileUrl = await _getLogFileUrl(webId);
-      final logContent = await _fetchLogFile(logFileUrl);
+      final logFileUrl = PodUtils.getPermissionLogUrl(webId);
+      final logContent = await PodUtils.readTurtleContent(logFileUrl);
       
       debugPrint('Fetched log content: $logContent');
       if (logContent == null) return [];
@@ -292,48 +310,54 @@ INSERT DATA {
     }
   }
 
-  /// Fetch log file content
-  static Future<String?> _fetchLogFile(String logFileUrl) async {
-    try {
-      final (:accessToken, :dPopToken) = await getTokensForResource(logFileUrl, 'GET');
-
-      final res = await http.get(
-        Uri.parse(logFileUrl),
-        headers: {
-          'Accept': 'text/turtle',
-          'Authorization': 'DPoP $accessToken',
-          'DPoP': dPopToken,
-        },
-      );
-
-      return res.statusCode == 200 ? res.body : null;
-    } catch (e) {
-      debugPrint('Error fetching log file: $e');
-      return null;
-    }
-  }
-
   // Parse log entries from Turtle content using dynamic namespaces
   static List<PermissionLogEntry> _parseLogEntries(String turtleContent, String webId) {
     final entries = <PermissionLogEntry>[];
     
-    // Extract log entries - match any namespace prefix (log:, or the full URI)
-    final logPattern = RegExp(
-      r'(?:log:(\d+)|<[^>]*log#(\d+)>)\s+(?:data:log|<[^>]*data#log>)\s+"([^"]+)"',
-      multiLine: true,
-    );
-
-    for (final match in logPattern.allMatches(turtleContent)) {
-      final logId = match.group(1) ?? match.group(2);
-      final logData = match.group(3);
-      
-      if (logId != null && logData != null) {
+    debugPrint('🔍 Parsing log entries...');
+    debugPrint('   Content length: ${turtleContent.length} chars');
+    
+    // Try line-by-line parsing first (more reliable)
+    final lines = turtleContent.split('\n');
+    int linesParsed = 0;
+    
+    for (var line in lines) {
+      // Look for lines containing log entries
+      if (line.contains('log#') && line.contains('data#log') && line.contains('"')) {
+        linesParsed++;
+        debugPrint('   📄 Processing line: ${line.substring(0, line.length > 80 ? 80 : line.length)}...');
+        
+        // Extract log ID
+        final logIdMatch = RegExp(r'log#(\d+)').firstMatch(line);
+        if (logIdMatch == null) {
+          debugPrint('      ⚠️ No log ID found');
+          continue;
+        }
+        final logId = logIdMatch.group(1)!;
+        
+        // Extract data string between quotes
+        final dataMatch = RegExp(r'"([^"]+)"').firstMatch(line);
+        if (dataMatch == null) {
+          debugPrint('      ⚠️ No quoted data found');
+          continue;
+        }
+        final logData = dataMatch.group(1)!;
+        
+        debugPrint('      ✓ Extracted - ID: $logId, Data length: ${logData.length}');
+        
         final entry = _parseLogData(logId, logData);
-        if (entry != null) entries.add(entry);
+        if (entry != null) {
+          entries.add(entry);
+          debugPrint('      ✅ Successfully parsed entry for: ${entry.resourceUrl.split('/').last}');
+        } else {
+          debugPrint('      ❌ Failed to parse entry data');
+        }
       }
     }
 
+    debugPrint('   Processed $linesParsed lines with log entries');
     entries.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    debugPrint('📊 Total entries parsed: ${entries.length}');
     
     return entries;
   }
@@ -342,11 +366,37 @@ INSERT DATA {
   static PermissionLogEntry? _parseLogData(String logId, String logData) {
     try {
       final parts = logData.split(';');
-      if (parts.length < 7) return null;
+      if (parts.length < 7) {
+        debugPrint('⚠️ Log data has insufficient parts: ${parts.length}');
+        return null;
+      }
+
+      // Parse timestamp in format: yyyyMMddTHHmmss
+      DateTime? timestamp;
+      try {
+        final timestampStr = parts[0];
+        // Convert 20251026T102958 to 2025-10-26T10:29:58
+        if (timestampStr.length >= 15) {
+          final year = timestampStr.substring(0, 4);
+          final month = timestampStr.substring(4, 6);
+          final day = timestampStr.substring(6, 8);
+          final hour = timestampStr.substring(9, 11);
+          final minute = timestampStr.substring(11, 13);
+          final second = timestampStr.substring(13, 15);
+          final isoFormat = '$year-$month-${day}T$hour:$minute:$second';
+          timestamp = DateTime.parse(isoFormat);
+        } else {
+          debugPrint('⚠️ Invalid timestamp format: $timestampStr');
+          timestamp = DateTime.now(); // Fallback
+        }
+      } catch (e) {
+        debugPrint('⚠️ Error parsing timestamp: $e');
+        timestamp = DateTime.now(); // Fallback
+      }
 
       return PermissionLogEntry(
         id: logId,
-        timestamp: DateTime.parse(parts[0]),
+        timestamp: timestamp,
         resourceUrl: parts[1],
         ownerWebId: parts[2],
         permissionType: parts[3],
@@ -359,7 +409,8 @@ INSERT DATA {
             : null,
       );
     } catch (e) {
-      debugPrint('Error parsing log entry: $e');
+      debugPrint('❌ Error parsing log entry: $e');
+      debugPrint('   Log data: $logData');
       return null;
     }
   }
@@ -415,6 +466,204 @@ INSERT DATA {
             log.granterWebId == webId && 
             log.permissionType == 'grant')
         .toList();
+  }
+
+  // ============================================================================
+  // ACP POLICY LOGGING HELPERS
+  // Convenience methods for logging specific ACP policy applications
+  // ============================================================================
+
+  /// Log owner-only policy application (private resource)
+  static Future<void> logOwnerOnlyPolicy({
+    required String resourceUrl,
+    required String ownerWebId,
+  }) async {
+    try {
+      await logPermissionChange(
+        resourceUrl: resourceUrl,
+        ownerWebId: ownerWebId,
+        granterWebId: ownerWebId,
+        recipientWebId: ownerWebId,
+        permissionList: ['read', 'write'],
+        permissionType: 'grant',
+        acpPattern: 'owner-only',
+      );
+      debugPrint('📝 Logged owner-only policy for $resourceUrl');
+    } catch (e) {
+      debugPrint('⚠️ Failed to log owner-only policy: $e');
+      // Non-fatal - don't rethrow
+    }
+  }
+
+  /// Log shared read policy application (read-only sharing)
+  static Future<void> logSharedReadPolicy({
+    required String resourceUrl,
+    required String ownerWebId,
+    required List<String> readerWebIds,
+  }) async {
+    try {
+      final granterWebId = await getWebId() ?? ownerWebId;
+      
+      for (final readerWebId in readerWebIds) {
+        await logPermissionChange(
+          resourceUrl: resourceUrl,
+          ownerWebId: ownerWebId,
+          granterWebId: granterWebId,
+          recipientWebId: readerWebId,
+          permissionList: ['read'],
+          permissionType: 'grant',
+          acpPattern: 'shared-read',
+        );
+      }
+      debugPrint('📝 Logged shared-read policy for ${readerWebIds.length} readers');
+    } catch (e) {
+      debugPrint('⚠️ Failed to log shared-read policy: $e');
+      // Non-fatal - don't rethrow
+    }
+  }
+
+  /// Log shared write policy application (collaborative editing)
+  static Future<void> logSharedWritePolicy({
+    required String resourceUrl,
+    required String ownerWebId,
+    required List<String> writerWebIds,
+  }) async {
+    try {
+      final granterWebId = await getWebId() ?? ownerWebId;
+      
+      for (final writerWebId in writerWebIds) {
+        await logPermissionChange(
+          resourceUrl: resourceUrl,
+          ownerWebId: ownerWebId,
+          granterWebId: granterWebId,
+          recipientWebId: writerWebId,
+          permissionList: ['read', 'write'],
+          permissionType: 'grant',
+          acpPattern: 'shared-write',
+        );
+      }
+      debugPrint('📝 Logged shared-write policy for ${writerWebIds.length} writers');
+    } catch (e) {
+      debugPrint('⚠️ Failed to log shared-write policy: $e');
+      // Non-fatal - don't rethrow
+    }
+  }
+
+  /// Log team collaboration policy application (multi-role access)
+  static Future<void> logTeamCollabPolicy({
+    required String resourceUrl,
+    required String ownerWebId,
+    List<String>? adminWebIds,
+    List<String>? editorWebIds,
+    List<String>? viewerWebIds,
+  }) async {
+    try {
+      final granterWebId = await getWebId() ?? ownerWebId;
+      
+      // Log admins (read + write + control)
+      if (adminWebIds != null) {
+        for (final adminWebId in adminWebIds) {
+          await logPermissionChange(
+            resourceUrl: resourceUrl,
+            ownerWebId: ownerWebId,
+            granterWebId: granterWebId,
+            recipientWebId: adminWebId,
+            permissionList: ['read', 'write', 'control'],
+            permissionType: 'grant',
+            acpPattern: 'team-collab',
+          );
+        }
+      }
+      
+      // Log editors (read + write)
+      if (editorWebIds != null) {
+        for (final editorWebId in editorWebIds) {
+          await logPermissionChange(
+            resourceUrl: resourceUrl,
+            ownerWebId: ownerWebId,
+            granterWebId: granterWebId,
+            recipientWebId: editorWebId,
+            permissionList: ['read', 'write'],
+            permissionType: 'grant',
+            acpPattern: 'team-collab',
+          );
+        }
+      }
+      
+      // Log viewers (read only)
+      if (viewerWebIds != null) {
+        for (final viewerWebId in viewerWebIds) {
+          await logPermissionChange(
+            resourceUrl: resourceUrl,
+            ownerWebId: ownerWebId,
+            granterWebId: granterWebId,
+            recipientWebId: viewerWebId,
+            permissionList: ['read'],
+            permissionType: 'grant',
+            acpPattern: 'team-collab',
+          );
+        }
+      }
+      
+      final totalLogged = (adminWebIds?.length ?? 0) + 
+                         (editorWebIds?.length ?? 0) + 
+                         (viewerWebIds?.length ?? 0);
+      debugPrint('📝 Logged team-collab policy for $totalLogged members');
+    } catch (e) {
+      debugPrint('⚠️ Failed to log team-collab policy: $e');
+      // Non-fatal - don't rethrow
+    }
+  }
+
+  /// Log public read policy application (anyone can read)
+  static Future<void> logPublicReadPolicy({
+    required String resourceUrl,
+    required String ownerWebId,
+  }) async {
+    try {
+      final granterWebId = await getWebId() ?? ownerWebId;
+      
+      await logPermissionChange(
+        resourceUrl: resourceUrl,
+        ownerWebId: ownerWebId,
+        granterWebId: granterWebId,
+        recipientWebId: 'acp:PublicAgent',
+        permissionList: ['read'],
+        permissionType: 'grant',
+        acpPattern: 'public-read',
+      );
+      debugPrint('📝 Logged public-read policy');
+    } catch (e) {
+      debugPrint('⚠️ Failed to log public-read policy: $e');
+      // Non-fatal - don't rethrow
+    }
+  }
+
+  /// Log permission revocation
+  static Future<void> logPermissionRevoke({
+    required String resourceUrl,
+    required String ownerWebId,
+    required String recipientWebId,
+    required List<String> permissions,
+    String? acpPattern,
+  }) async {
+    try {
+      final granterWebId = await getWebId() ?? ownerWebId;
+      
+      await logPermissionChange(
+        resourceUrl: resourceUrl,
+        ownerWebId: ownerWebId,
+        granterWebId: granterWebId,
+        recipientWebId: recipientWebId,
+        permissionList: permissions,
+        permissionType: 'revoke',
+        acpPattern: acpPattern ?? 'basic',
+      );
+      debugPrint('📝 Logged permission revoke for $recipientWebId');
+    } catch (e) {
+      debugPrint('⚠️ Failed to log permission revoke: $e');
+      // Non-fatal - don't rethrow
+    }
   }
 }
 

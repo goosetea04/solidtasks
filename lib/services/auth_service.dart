@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:solidpod/solidpod.dart';
+import '../utils/pod_utils.dart';
 
 class AuthService {
   // Get the current authenticated user's WebID using the solidpod library
@@ -33,17 +34,7 @@ class AuthService {
 
   /// Validate that a WebID is properly formatted
   static bool isValidWebId(String? webId) {
-    if (webId == null || webId.isEmpty) return false;
-    
-    try {
-      final uri = Uri.parse(webId);
-      return uri.hasScheme && 
-             (uri.scheme == 'https' || uri.scheme == 'http') &&
-             uri.hasAuthority &&
-             uri.fragment != null; 
-    } catch (e) {
-      return false;
-    }
+    return PodUtils.isValidWebId(webId);
   }
 
   /// Extract display name from WebID

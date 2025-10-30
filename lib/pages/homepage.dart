@@ -5,6 +5,7 @@ import '../services/pod_service.dart';
 import '../services/pod_service_acp.dart';
 import '../services/sharing_service.dart';
 import '../services/auth_service.dart';
+import '../services/policy_manager.dart';
 import '../widgets/task_item.dart';
 import '../widgets/weekly_calendar.dart';
 import '../widgets/add_task_widget.dart';
@@ -26,6 +27,7 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
   @override
   void initState() {
     super.initState();
+    _initializePolicies(); 
     _loadTasksFromPod();
   }
 
@@ -82,7 +84,7 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
     // First, delete the file from the server
     await _executeWithLoading(() async {
       final taskUrl = await PodService.taskFileUrl(id);
-      await PodService.deleteTaskFile(taskUrl); // You need to add this method
+      await PodService.deleteTaskFile(taskUrl); //delete file
       
       // Then remove from state
       ref.read(tasksProvider.notifier).deleteTask(id);
@@ -99,57 +101,144 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
   void _shareTask(String id) => _showShareDialog(id);
 
   void _showShareDialog(String taskId) {
-    final recipientController = TextEditingController();
+    final serverController = TextEditingController(text: 'pods.acp.solidcommunity.au');
+    final usernameController = TextEditingController();
     final messageController = TextEditingController();
     String shareType = 'read';
     String acpPattern = 'basic';
+    String constructedWebId = '';
+
+    String buildWebId(String server, String username) {
+      if (server.isEmpty || username.isEmpty) return '';
+      return 'https://$server/$username/profile/card#me';
+    }
 
     showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          title: const Text('Share Task'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _buildTextField(recipientController, 'Recipient WebID'),
-              _buildTextField(messageController, 'Message (optional)'),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                value: shareType,
-                decoration: const InputDecoration(labelText: 'Share Type'),
-                items: const [
-                  DropdownMenuItem(value: 'read', child: Text('Read Only')),
-                  DropdownMenuItem(value: 'write', child: Text('Read & Write')),
-                  DropdownMenuItem(value: 'control', child: Text('Full Control')),
+        builder: (context, setState) {
+          constructedWebId = buildWebId(serverController.text.trim(), usernameController.text.trim());
+          
+          return AlertDialog(
+            title: const Text('Share Task'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Recipient Details:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: serverController,
+                    decoration: const InputDecoration(
+                      labelText: 'Server',
+                      hintText: 'pods.acp.solidcommunity.au',
+                      prefixIcon: Icon(Icons.dns),
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: usernameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Username',
+                      hintText: 'acptest1',
+                      prefixIcon: Icon(Icons.person),
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                  if (constructedWebId.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[100],
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.grey[300]!),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Row(
+                            children: [
+                              Icon(Icons.link, size: 16, color: Colors.green),
+                              SizedBox(width: 4),
+                              Text('WebID:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            constructedWebId,
+                            style: const TextStyle(fontSize: 11, color: Colors.black87),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: messageController,
+                    decoration: const InputDecoration(
+                      labelText: 'Message (optional)',
+                      hintText: 'Add a message...',
+                      prefixIcon: Icon(Icons.message),
+                      border: OutlineInputBorder(),
+                    ),
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 16),
+                  const Text('Permissions:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    value: shareType,
+                    decoration: const InputDecoration(
+                      labelText: 'Share Type',
+                      prefixIcon: Icon(Icons.lock),
+                      border: OutlineInputBorder(),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'read', child: Text('Read Only')),
+                      DropdownMenuItem(value: 'write', child: Text('Read & Write')),
+                      DropdownMenuItem(value: 'control', child: Text('Full Control')),
+                    ],
+                    onChanged: (value) => setState(() => shareType = value!),
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    value: acpPattern,
+                    decoration: const InputDecoration(
+                      labelText: 'Access Pattern',
+                      prefixIcon: Icon(Icons.security),
+                      border: OutlineInputBorder(),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'basic', child: Text('Basic Sharing')),
+                      DropdownMenuItem(value: 'app_scoped', child: Text('App-Scoped')),
+                      DropdownMenuItem(value: 'delegated_sharing', child: Text('Delegated')),
+                      DropdownMenuItem(value: 'role_based', child: Text('Role-Based')),
+                    ],
+                    onChanged: (value) => setState(() => acpPattern = value!),
+                  ),
                 ],
-                onChanged: (value) => setState(() => shareType = value!),
               ),
-              const SizedBox(height: 8),
-              DropdownButtonFormField<String>(
-                value: acpPattern,
-                decoration: const InputDecoration(labelText: 'Access Pattern'),
-                items: const [
-                  DropdownMenuItem(value: 'basic', child: Text('Basic Sharing')),
-                  DropdownMenuItem(value: 'app_scoped', child: Text('App-Scoped')),
-                  DropdownMenuItem(value: 'delegated_sharing', child: Text('Delegated')),
-                  DropdownMenuItem(value: 'role_based', child: Text('Role-Based')),
-                ],
-                onChanged: (value) => setState(() => acpPattern = value!),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: constructedWebId.isEmpty ? null : () async {
+                  await _shareTaskWithUser(taskId, constructedWebId, shareType, acpPattern, messageController.text.trim());
+                  Navigator.pop(context);
+                },
+                child: const Text('Share'),
               ),
             ],
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-            ElevatedButton(
-              onPressed: () async {
-                await _shareTaskWithUser(taskId, recipientController.text.trim(), shareType, acpPattern, messageController.text.trim());
-                Navigator.pop(context);
-              },
-              child: const Text('Share'),
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
@@ -228,8 +317,11 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
       ],
       onApply: () async {
         final readers = _parseWebIds(readersCtrl.text);
-        await AcpService.writeAppScopedAcr(taskUrl, ownerWebId, 
-          allowReadWebIds: readers, allowedClientId: clientCtrl.text.trim());
+        await AcpService.applySharedRead(
+          taskUrl,  
+          ownerWebId,
+          readers ?? [],  // Use parsed readers
+        );
       },
     );
   }
@@ -244,9 +336,12 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
         _buildTextField(contractorsCtrl, 'Contractor WebIDs (comma-separated)', maxLines: 2),
       ],
       onApply: () async {
-        final contractors = _parseWebIds(contractorsCtrl.text);
-        await AcpService.writeDelegatedSharingAcr(taskUrl, ownerWebId, 
-          managerCtrl.text.trim(), contractorWebIds: contractors);
+        final manager = managerCtrl.text.trim();
+        await AcpService.applySharedWrite(
+          taskUrl,  
+          ownerWebId,
+          [manager],  // Use parsed manager
+        );
       },
     );
   }
@@ -263,10 +358,16 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
         _buildTextField(contributorCtrl, 'Contributor WebIDs (comma-separated)'),
       ],
       onApply: () async {
-        await AcpService.writeRoleBasedAcr(taskUrl, ownerWebId,
-          adminWebIds: _parseWebIds(adminCtrl.text),
-          reviewerWebIds: _parseWebIds(reviewerCtrl.text),
-          contributorWebIds: _parseWebIds(contributorCtrl.text),
+        final admins = _parseWebIds(adminCtrl.text);
+        final reviewers = _parseWebIds(reviewerCtrl.text);
+        final contributors = _parseWebIds(contributorCtrl.text);
+        
+        await AcpService.applyTeamCollab(
+          taskUrl,  // Use taskUrl parameter
+          ownerWebId,
+          adminWebIds: admins,
+          viewerWebIds: reviewers,
+          editorWebIds: contributors,
         );
       },
     );
@@ -290,12 +391,17 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
           onApply: () async {
             final webId = ownerWebId.replaceAll('/profile/card#me', '');
             final containerUrl = '$webId/solidtasks/data/';
-            await AcpService.writeContainerAcr(
-              containerUrl,
-              ownerWebId,
-              defaultReadWebIds: _parseWebIds(readCtrl.text),
-              defaultWriteWebIds: _parseWebIds(writeCtrl.text),
-            );
+            
+            final defaultWriteWebIds = _parseWebIds(writeCtrl.text);
+            final defaultReadWebIds = _parseWebIds(readCtrl.text);
+            
+            if (defaultWriteWebIds != null && defaultWriteWebIds.isNotEmpty) {
+              await AcpService.applySharedWrite(containerUrl, ownerWebId, defaultWriteWebIds);
+            } else if (defaultReadWebIds != null && defaultReadWebIds.isNotEmpty) {
+              await AcpService.applySharedRead(containerUrl, ownerWebId, defaultReadWebIds);
+            } else {
+              await AcpService.applyOwnerOnly(containerUrl, ownerWebId);
+            }
           },
         ),
         actions: [
@@ -377,6 +483,18 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
 
   List<String>? _parseWebIds(String text) {
     return text.trim().isEmpty ? null : text.split(',').map((e) => e.trim()).toList();
+  }
+
+  Future<void> _initializePolicies() async {
+    try {
+      final webId = await AuthService.getCurrentUserWebId();
+      if (webId != null) {
+        await PolicyManager.initializePolicies(webId);
+        debugPrint('Policies initialized');
+      }
+    } catch (e) {
+      debugPrint('Error initializing policies: $e');
+    }
   }
 
   Future<bool> _showConfirmDialog(String title, String content) async {
