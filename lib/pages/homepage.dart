@@ -5,6 +5,7 @@ import '../services/pod_service.dart';
 import '../services/pod_service_acp.dart';
 import '../services/sharing_service.dart';
 import '../services/auth_service.dart';
+import '../services/policy_manager.dart';
 import '../widgets/task_item.dart';
 import '../widgets/weekly_calendar.dart';
 import '../widgets/add_task_widget.dart';
@@ -26,6 +27,7 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
   @override
   void initState() {
     super.initState();
+    _initializePolicies(); 
     _loadTasksFromPod();
   }
 
@@ -82,7 +84,7 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
     // First, delete the file from the server
     await _executeWithLoading(() async {
       final taskUrl = await PodService.taskFileUrl(id);
-      await PodService.deleteTaskFile(taskUrl); // You need to add this method
+      await PodService.deleteTaskFile(taskUrl); //delete file
       
       // Then remove from state
       ref.read(tasksProvider.notifier).deleteTask(id);
@@ -315,8 +317,11 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
       ],
       onApply: () async {
         final readers = _parseWebIds(readersCtrl.text);
-        await AcpService.writeAppScopedAcr(taskUrl, ownerWebId, 
-          allowReadWebIds: readers, allowedClientId: clientCtrl.text.trim());
+        await AcpService.applySharedRead(
+          taskUrl,  
+          ownerWebId,
+          readers ?? [],  // Use parsed readers
+        );
       },
     );
   }
@@ -331,9 +336,12 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
         _buildTextField(contractorsCtrl, 'Contractor WebIDs (comma-separated)', maxLines: 2),
       ],
       onApply: () async {
-        final contractors = _parseWebIds(contractorsCtrl.text);
-        await AcpService.writeDelegatedSharingAcr(taskUrl, ownerWebId, 
-          managerCtrl.text.trim(), contractorWebIds: contractors);
+        final manager = managerCtrl.text.trim();
+        await AcpService.applySharedWrite(
+          taskUrl,  
+          ownerWebId,
+          [manager],  // Use parsed manager
+        );
       },
     );
   }
@@ -350,10 +358,16 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
         _buildTextField(contributorCtrl, 'Contributor WebIDs (comma-separated)'),
       ],
       onApply: () async {
-        await AcpService.writeRoleBasedAcr(taskUrl, ownerWebId,
-          adminWebIds: _parseWebIds(adminCtrl.text),
-          reviewerWebIds: _parseWebIds(reviewerCtrl.text),
-          contributorWebIds: _parseWebIds(contributorCtrl.text),
+        final admins = _parseWebIds(adminCtrl.text);
+        final reviewers = _parseWebIds(reviewerCtrl.text);
+        final contributors = _parseWebIds(contributorCtrl.text);
+        
+        await AcpService.applyTeamCollab(
+          taskUrl,  // Use taskUrl parameter
+          ownerWebId,
+          adminWebIds: admins,
+          viewerWebIds: reviewers,
+          editorWebIds: contributors,
         );
       },
     );
@@ -377,12 +391,17 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
           onApply: () async {
             final webId = ownerWebId.replaceAll('/profile/card#me', '');
             final containerUrl = '$webId/solidtasks/data/';
-            await AcpService.writeContainerAcr(
-              containerUrl,
-              ownerWebId,
-              defaultReadWebIds: _parseWebIds(readCtrl.text),
-              defaultWriteWebIds: _parseWebIds(writeCtrl.text),
-            );
+            
+            final defaultWriteWebIds = _parseWebIds(writeCtrl.text);
+            final defaultReadWebIds = _parseWebIds(readCtrl.text);
+            
+            if (defaultWriteWebIds != null && defaultWriteWebIds.isNotEmpty) {
+              await AcpService.applySharedWrite(containerUrl, ownerWebId, defaultWriteWebIds);
+            } else if (defaultReadWebIds != null && defaultReadWebIds.isNotEmpty) {
+              await AcpService.applySharedRead(containerUrl, ownerWebId, defaultReadWebIds);
+            } else {
+              await AcpService.applyOwnerOnly(containerUrl, ownerWebId);
+            }
           },
         ),
         actions: [
@@ -464,6 +483,18 @@ class _TodoHomePageState extends ConsumerState<TodoHomePage> {
 
   List<String>? _parseWebIds(String text) {
     return text.trim().isEmpty ? null : text.split(',').map((e) => e.trim()).toList();
+  }
+
+  Future<void> _initializePolicies() async {
+    try {
+      final webId = await AuthService.getCurrentUserWebId();
+      if (webId != null) {
+        await PolicyManager.initializePolicies(webId);
+        debugPrint('Policies initialized');
+      }
+    } catch (e) {
+      debugPrint('Error initializing policies: $e');
+    }
   }
 
   Future<bool> _showConfirmDialog(String title, String content) async {

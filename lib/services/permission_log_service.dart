@@ -4,7 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:solidpod/solidpod.dart';
 import '../utils/pod_utils.dart';
 
-// Permission log literals for ACP-based sharing
+// Permission log for ACP-based sharing
 enum PermissionLogLiteral {
   logtime('logtime'),
   resource('resource'),
@@ -123,10 +123,10 @@ class PermissionLogService {
       try {
         await _addLogEntry(recipientWebId, logEntryId, logEntryStr);
         results['recipient'] = 'success';
-        debugPrint('✅ Logged to recipient\'s POD: $recipientWebId');
+        debugPrint('Logged to recipient\'s POD: $recipientWebId');
       } catch (e) {
         results['recipient'] = 'failed: $e';
-        debugPrint('❌ Failed to log to recipient\'s POD: $e');
+        debugPrint('Failed to log to recipient\'s POD: $e');
       }
     } else {
       results['recipient'] = 'skipped (duplicate)';
@@ -136,7 +136,7 @@ class PermissionLogService {
     // Log summary
     final successCount = results.values.where((v) => v == 'success').length;
     final totalAttempts = results.values.where((v) => v != 'skipped (same as granter)' && v != 'skipped (duplicate)').length;
-    debugPrint('📊 Permission log summary: $successCount/$totalAttempts logs written successfully');
+    debugPrint('(log) Permission log summary: $successCount/$totalAttempts logs written successfully');
     debugPrint('   Details: $results');
     
     if (successCount == 0 && totalAttempts > 0) {
@@ -466,6 +466,204 @@ INSERT DATA {
             log.granterWebId == webId && 
             log.permissionType == 'grant')
         .toList();
+  }
+
+  // ============================================================================
+  // ACP POLICY LOGGING HELPERS
+  // Convenience methods for logging specific ACP policy applications
+  // ============================================================================
+
+  /// Log owner-only policy application (private resource)
+  static Future<void> logOwnerOnlyPolicy({
+    required String resourceUrl,
+    required String ownerWebId,
+  }) async {
+    try {
+      await logPermissionChange(
+        resourceUrl: resourceUrl,
+        ownerWebId: ownerWebId,
+        granterWebId: ownerWebId,
+        recipientWebId: ownerWebId,
+        permissionList: ['read', 'write'],
+        permissionType: 'grant',
+        acpPattern: 'owner-only',
+      );
+      debugPrint('📝 Logged owner-only policy for $resourceUrl');
+    } catch (e) {
+      debugPrint('⚠️ Failed to log owner-only policy: $e');
+      // Non-fatal - don't rethrow
+    }
+  }
+
+  /// Log shared read policy application (read-only sharing)
+  static Future<void> logSharedReadPolicy({
+    required String resourceUrl,
+    required String ownerWebId,
+    required List<String> readerWebIds,
+  }) async {
+    try {
+      final granterWebId = await getWebId() ?? ownerWebId;
+      
+      for (final readerWebId in readerWebIds) {
+        await logPermissionChange(
+          resourceUrl: resourceUrl,
+          ownerWebId: ownerWebId,
+          granterWebId: granterWebId,
+          recipientWebId: readerWebId,
+          permissionList: ['read'],
+          permissionType: 'grant',
+          acpPattern: 'shared-read',
+        );
+      }
+      debugPrint('📝 Logged shared-read policy for ${readerWebIds.length} readers');
+    } catch (e) {
+      debugPrint('⚠️ Failed to log shared-read policy: $e');
+      // Non-fatal - don't rethrow
+    }
+  }
+
+  /// Log shared write policy application (collaborative editing)
+  static Future<void> logSharedWritePolicy({
+    required String resourceUrl,
+    required String ownerWebId,
+    required List<String> writerWebIds,
+  }) async {
+    try {
+      final granterWebId = await getWebId() ?? ownerWebId;
+      
+      for (final writerWebId in writerWebIds) {
+        await logPermissionChange(
+          resourceUrl: resourceUrl,
+          ownerWebId: ownerWebId,
+          granterWebId: granterWebId,
+          recipientWebId: writerWebId,
+          permissionList: ['read', 'write'],
+          permissionType: 'grant',
+          acpPattern: 'shared-write',
+        );
+      }
+      debugPrint('📝 Logged shared-write policy for ${writerWebIds.length} writers');
+    } catch (e) {
+      debugPrint('⚠️ Failed to log shared-write policy: $e');
+      // Non-fatal - don't rethrow
+    }
+  }
+
+  /// Log team collaboration policy application (multi-role access)
+  static Future<void> logTeamCollabPolicy({
+    required String resourceUrl,
+    required String ownerWebId,
+    List<String>? adminWebIds,
+    List<String>? editorWebIds,
+    List<String>? viewerWebIds,
+  }) async {
+    try {
+      final granterWebId = await getWebId() ?? ownerWebId;
+      
+      // Log admins (read + write + control)
+      if (adminWebIds != null) {
+        for (final adminWebId in adminWebIds) {
+          await logPermissionChange(
+            resourceUrl: resourceUrl,
+            ownerWebId: ownerWebId,
+            granterWebId: granterWebId,
+            recipientWebId: adminWebId,
+            permissionList: ['read', 'write', 'control'],
+            permissionType: 'grant',
+            acpPattern: 'team-collab',
+          );
+        }
+      }
+      
+      // Log editors (read + write)
+      if (editorWebIds != null) {
+        for (final editorWebId in editorWebIds) {
+          await logPermissionChange(
+            resourceUrl: resourceUrl,
+            ownerWebId: ownerWebId,
+            granterWebId: granterWebId,
+            recipientWebId: editorWebId,
+            permissionList: ['read', 'write'],
+            permissionType: 'grant',
+            acpPattern: 'team-collab',
+          );
+        }
+      }
+      
+      // Log viewers (read only)
+      if (viewerWebIds != null) {
+        for (final viewerWebId in viewerWebIds) {
+          await logPermissionChange(
+            resourceUrl: resourceUrl,
+            ownerWebId: ownerWebId,
+            granterWebId: granterWebId,
+            recipientWebId: viewerWebId,
+            permissionList: ['read'],
+            permissionType: 'grant',
+            acpPattern: 'team-collab',
+          );
+        }
+      }
+      
+      final totalLogged = (adminWebIds?.length ?? 0) + 
+                         (editorWebIds?.length ?? 0) + 
+                         (viewerWebIds?.length ?? 0);
+      debugPrint('📝 Logged team-collab policy for $totalLogged members');
+    } catch (e) {
+      debugPrint('⚠️ Failed to log team-collab policy: $e');
+      // Non-fatal - don't rethrow
+    }
+  }
+
+  /// Log public read policy application (anyone can read)
+  static Future<void> logPublicReadPolicy({
+    required String resourceUrl,
+    required String ownerWebId,
+  }) async {
+    try {
+      final granterWebId = await getWebId() ?? ownerWebId;
+      
+      await logPermissionChange(
+        resourceUrl: resourceUrl,
+        ownerWebId: ownerWebId,
+        granterWebId: granterWebId,
+        recipientWebId: 'acp:PublicAgent',
+        permissionList: ['read'],
+        permissionType: 'grant',
+        acpPattern: 'public-read',
+      );
+      debugPrint('📝 Logged public-read policy');
+    } catch (e) {
+      debugPrint('⚠️ Failed to log public-read policy: $e');
+      // Non-fatal - don't rethrow
+    }
+  }
+
+  /// Log permission revocation
+  static Future<void> logPermissionRevoke({
+    required String resourceUrl,
+    required String ownerWebId,
+    required String recipientWebId,
+    required List<String> permissions,
+    String? acpPattern,
+  }) async {
+    try {
+      final granterWebId = await getWebId() ?? ownerWebId;
+      
+      await logPermissionChange(
+        resourceUrl: resourceUrl,
+        ownerWebId: ownerWebId,
+        granterWebId: granterWebId,
+        recipientWebId: recipientWebId,
+        permissionList: permissions,
+        permissionType: 'revoke',
+        acpPattern: acpPattern ?? 'basic',
+      );
+      debugPrint('📝 Logged permission revoke for $recipientWebId');
+    } catch (e) {
+      debugPrint('⚠️ Failed to log permission revoke: $e');
+      // Non-fatal - don't rethrow
+    }
   }
 }
 

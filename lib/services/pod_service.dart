@@ -7,6 +7,7 @@ import '../main.dart';
 import 'pod_service_acp.dart';
 import 'permission_log_service.dart';
 import '../utils/pod_utils.dart';
+import 'policy_manager.dart';
 
 class PodService {
   // Constants now come from PodUtils
@@ -199,7 +200,7 @@ class PodService {
         final fileUrl = '$fullDirPath$fileName';
 
         // Set ACR with only owner permissions (no collaborators)
-        await AcpPresets.writeAcrForResource(
+        await AcpService.applyOwnerOnly(
           fileUrl,
           ownerWebId,
         );

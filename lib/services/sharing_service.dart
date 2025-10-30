@@ -36,18 +36,8 @@ class SharingService {
         acpOptions,
       );
       
-      // Log the permission change with normalized WebID
-      final currentUserWebId = await AuthService.getCurrentUserWebId();
-      await PermissionLogService.logPermissionChange(
-        resourceUrl: resourceUrl,
-        ownerWebId: ownerWebId,
-        granterWebId: currentUserWebId ?? ownerWebId,
-        recipientWebId: normalizedRecipient,  // Use normalized version
-        permissionList: [shareType],
-        permissionType: 'grant',
-        acpPattern: acpPattern,
-        expiryDate: acpOptions?['validUntil'],
-      );
+      // Permission logging is handled automatically by AcpService methods
+      // (applyOwnerOnly, applySharedRead, applySharedWrite, etc. all log internally)
       
       // Send sharing notification to recipient
       await _sendSharingNotification(
@@ -61,9 +51,9 @@ class SharingService {
       // Log the share in owner's outgoing shares
       await _logOutgoingShare(ownerWebId, resourceUrl, normalizedRecipient, shareType);
       
-      debugPrint('✅ Successfully shared $resourceUrl with $normalizedRecipient');
+      debugPrint('Successfully shared $resourceUrl with $normalizedRecipient');
     } catch (e) {
-      debugPrint('❌ Error sharing resource: $e');
+      debugPrint('Error sharing resource: $e');
       rethrow;
     }
   }
@@ -78,30 +68,28 @@ class SharingService {
   ) async {
     switch (pattern) {
       case 'app_scoped':
-        await AcpService.writeAppScopedAcr(
+        await AcpService.applySharedRead(
           resourceUrl,
           ownerWebId,
-          allowReadWebIds: shareType == 'read' ? [recipientWebId] : null,
-          allowedClientId: options?['clientId'] ?? AcpService.officialClientId,
+          shareType == 'read' ? [recipientWebId] : [],
         );
         break;
       
       case 'delegated_sharing':
-        await AcpService.writeDelegatedSharingAcr(
+        await AcpService.applySharedWrite(
           resourceUrl,
           ownerWebId,
-          recipientWebId,
-          contractorWebIds: options?['contractors'],
+          [recipientWebId],
         );
         break;
       
       case 'role_based':
-        await AcpService.writeRoleBasedAcr(
+        await AcpService.applyTeamCollab(
           resourceUrl,
           ownerWebId,
           adminWebIds: shareType == 'control' ? [recipientWebId] : null,
-          reviewerWebIds: shareType == 'read' ? [recipientWebId] : null,
-          contributorWebIds: shareType == 'write' ? [recipientWebId] : null,
+          viewerWebIds: shareType == 'read' ? [recipientWebId] : null,
+          editorWebIds: shareType == 'write' ? [recipientWebId] : null,
         );
         break;
       
@@ -110,13 +98,13 @@ class SharingService {
         final writeWebIds = ['write', 'control'].contains(shareType) ? [recipientWebId] : null;
         final controlWebIds = shareType == 'control' ? [recipientWebId] : null;
         
-        await AcpPresets.writeAcrForResource(
-          resourceUrl,
-          ownerWebId,
-          allowReadWebIds: readWebIds,
-          allowWriteWebIds: writeWebIds,
-          allowControlWebIds: controlWebIds,
-        );
+        if (writeWebIds != null && writeWebIds.isNotEmpty) {
+          await AcpService.applySharedWrite(resourceUrl, ownerWebId, writeWebIds);
+        } else if (readWebIds != null && readWebIds.isNotEmpty) {
+          await AcpService.applySharedRead(resourceUrl, ownerWebId, readWebIds);
+        } else {
+          await AcpService.applyOwnerOnly(resourceUrl, ownerWebId);
+        }
     }
   }
   

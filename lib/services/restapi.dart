@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:solidpod/solidpod.dart';
-import 'pod_utils.dart';
+import '../utils/pod_utils.dart';
 
 Future<LoadedTasks> loadServerTaskData(
   BuildContext context,
@@ -83,7 +83,7 @@ Future<bool> saveServerTaskData(
 
 // Helper function for default ACR (kept for backward compatibility)
 String _defaultAcrForAllTasks(String webId) {
-  // This is a simplified ACR - you may want to use AcpPresets instead
+  // This is a simplified ACR 
   return '''@prefix acp: <http://www.w3.org/ns/solid/acp#> .
 @prefix acl: <http://www.w3.org/ns/auth/acl#> .
 
