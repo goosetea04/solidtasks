@@ -15,31 +15,49 @@
 
 * [Flutter](https://docs.flutter.dev/get-started/install) (Stable Channel)
 * A registered [Solid Pod](https://solidproject.org/users/get-a-pod)
-
+ 
 ### Installation
 
-1. **Clone the repository:**
+1. **Create a pod with a server that supports ACP specifications**
+   
+   For purposes of development and testing we are using [Solidcommunity.au ACP](https://pods.acp.solidcommunity.au). Create an account (WebID) with that solid server provider. 
 
-   ```bash
+2. **Clone the repository:**
+```bash
    git clone https://github.com/yourusername/solidtasks.git
    cd solidtasks
-   ```
+```
 
-2. **Install dependencies:**
-
-   ```bash
+3. **Install dependencies:**
+```bash
    flutter pub get
-   ```
+```
 
-3. **Run the app:**
-
-   ```bash
+4. **Run the app:**
+```bash
    flutter run
-   ```
+```
 
-4. **Login with your Solid Pod:**
+5. **Login with your Solid Pod:**
 
-   * Upon launching the app, sign in using your Solid Pod credentials.
+   * Upon launching the app, sign in using your Solid Pod credentials. 
+   * **Important:** The solid pod server you are logging into must support the ACP specification. For development and testing, we recommend using [Solidcommunity.au ACP](https://pods.acp.solidcommunity.au).
+
+6. **Handle Access Control Files (Known Issue):**
+
+   [Solidcommunity.au ACP](https://pods.acp.solidcommunity.au) currently has a known issue where it creates `.acl` files instead of `.acr` (Access Control Resource) files when using the ACP specification. 
+   
+   **Workaround:**
+   * After creating your first tasks, check your Pod storage for any `.acl` files
+   * Manually rename these files to `.acr` files
+   * Update any references in your task metadata to point to the `.acr` files instead
+   * This issue should be resolved in future updates to the Solid server implementation
+
+### Troubleshooting
+
+* **Authentication Issues:** Ensure your Pod provider supports the ACP specification
+* **Access Control Errors:** Verify that `.acr` files are being used instead of `.acl` files
+* **Connection Problems:** Check your internet connection and Pod server status
 
 ## Contributing
 
