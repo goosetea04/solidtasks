@@ -46,11 +46,11 @@ class _SharedTasksPageState extends ConsumerState<SharedTasksPage> {
       }
       
       if (_currentUserWebId != null) {
-        debugPrint('📖 Loading shared resources from permission logs for: $_currentUserWebId');
+        debugPrint('(checking) Loading shared resources from permission logs for: $_currentUserWebId');
         
         // Load from permission logs instead of inbox
         final allLogs = await PermissionLogService.fetchUserLogs();
-        debugPrint('📊 Total logs fetched: ${allLogs.length}');
+        debugPrint('(logging) Total logs fetched: ${allLogs.length}');
         
         // Filter for shares where current user is the recipient
         _sharedLogs = allLogs.where((log) {
@@ -63,9 +63,9 @@ class _SharedTasksPageState extends ConsumerState<SharedTasksPage> {
         setState(() {});
         
         if (_sharedLogs.isEmpty) {
-          debugPrint('❌ No shared resources found in logs');
+          debugPrint('(fail) No shared resources found in logs');
         } else {
-          debugPrint('✅ Found ${_sharedLogs.length} shared resources');
+          debugPrint('(check) Found ${_sharedLogs.length} shared resources');
           for (final log in _sharedLogs) {
             debugPrint('   - ${log.resourceUrl} from ${log.granterWebId}');
           }
@@ -74,7 +74,7 @@ class _SharedTasksPageState extends ConsumerState<SharedTasksPage> {
         _showSnackBar('WebID is required to view shared tasks', Colors.red);
       }
     } catch (e) {
-      debugPrint('❌ Error loading shared tasks: $e');
+      debugPrint('(fail) Error loading shared tasks: $e');
       _showSnackBar('Failed to load shared tasks: $e', Colors.red);
     } finally {
       setState(() => _isLoading = false);
@@ -98,14 +98,14 @@ class _SharedTasksPageState extends ConsumerState<SharedTasksPage> {
       debugPrint('   Response status: ${response.statusCode}');
       
       if (response.statusCode == 200) {
-        debugPrint('   ✅ Task loaded successfully');
+        debugPrint('   (check) Task loaded successfully');
         return _parseTaskFromRdf(response.body, logEntry.resourceUrl);
       } else {
-        debugPrint('   ❌ Failed to load task: ${response.statusCode}');
+        debugPrint('   (fail) Failed to load task: ${response.statusCode}');
         debugPrint('   Response: ${response.body}');
       }
     } catch (e) {
-      debugPrint('❌ Error loading task from ${logEntry.resourceUrl}: $e');
+      debugPrint('(fail) Error loading task from ${logEntry.resourceUrl}: $e');
     }
     return null;
   }
@@ -128,7 +128,7 @@ class _SharedTasksPageState extends ConsumerState<SharedTasksPage> {
 
   Future<void> _acceptShare(PermissionLogEntry logEntry) async {
     try {
-      debugPrint('🔍 Testing access to: ${logEntry.resourceUrl}');
+      debugPrint('(searching) Testing access to: ${logEntry.resourceUrl}');
       
       final canAccess = await SharingService.canAccessResource(
         logEntry.resourceUrl, 
@@ -136,15 +136,15 @@ class _SharedTasksPageState extends ConsumerState<SharedTasksPage> {
       );
       
       if (canAccess) {
-        debugPrint('✅ Access confirmed!');
+        debugPrint('(check) Access confirmed!');
         _showSnackBar('Task is accessible!', Colors.green);
         await _addToLocalTasks(logEntry);
       } else {
-        debugPrint('❌ Access denied');
+        debugPrint('(fail) Access denied');
         _showSnackBar('Access denied to task', Colors.red);
       }
     } catch (e) {
-      debugPrint('❌ Error testing access: $e');
+      debugPrint('(fail) Error testing access: $e');
       _showSnackBar('Error testing access: $e', Colors.red);
     }
   }
@@ -155,12 +155,12 @@ class _SharedTasksPageState extends ConsumerState<SharedTasksPage> {
       if (task != null) {
         // Add to local state
         _showSnackBar('Task added to your list', Colors.green);
-        debugPrint('✅ Task added: ${task.title}');
+        debugPrint('(check) Task added: ${task.title}');
       } else {
         _showSnackBar('Could not load task data', Colors.red);
       }
     } catch (e) {
-      debugPrint('❌ Failed to add task locally: $e');
+      debugPrint('(fail) Failed to add task locally: $e');
       _showSnackBar('Failed to add task locally: $e', Colors.red);
     }
   }
@@ -174,7 +174,7 @@ class _SharedTasksPageState extends ConsumerState<SharedTasksPage> {
 
   Future<void> _openTask(PermissionLogEntry logEntry) async {
     try {
-      debugPrint('🔍 Opening task: ${logEntry.resourceUrl}');
+      debugPrint('(searching) Opening task: ${logEntry.resourceUrl}');
       
       final canAccess = await SharingService.canAccessResource(
         logEntry.resourceUrl, 
@@ -193,7 +193,7 @@ class _SharedTasksPageState extends ConsumerState<SharedTasksPage> {
         _showSnackBar('Could not load task data', Colors.red);
       }
     } catch (e) {
-      debugPrint('❌ Error opening task: $e');
+      debugPrint('(fail) Error opening task: $e');
       _showSnackBar('Error opening task: $e', Colors.red);
     }
   }

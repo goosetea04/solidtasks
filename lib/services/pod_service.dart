@@ -3,18 +3,17 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:solidpod/solidpod.dart';
 import '../models/task.dart';
-import '../main.dart'; 
+import '../main.dart' show restartApp; 
 import 'pod_service_acp.dart';
 import 'permission_log_service.dart';
 import '../utils/pod_utils.dart';
 import 'policy_manager.dart';
 
 class PodService {
-  // Constants now come from PodUtils
   static const String updateTimeLabel = 'lastUpdated';
 
   static Future<void> openShareUiForTask(
-    BuildContext context,
+    BuildContext context, 
     StatefulWidget returnTo,
     String taskId,
   ) async {
@@ -157,7 +156,7 @@ class PodService {
     return tasks;
   }
 
-  /// Sync local tasks to the POD using one file per task.
+  // Sync local tasks to the POD using one file per task.
   static Future<void> saveTasks(List<Task> tasks, BuildContext context, StatefulWidget widget) async {
     debugPrint('Starting per-task sync to POD... (#${tasks.length})');
 
@@ -349,8 +348,6 @@ class PodService {
   }
 
   /// Write an ACR (Access Control Resource) for any Task resource.
-  /// 
-  /// DEPRECATED: Use AcpPresets.writeAcrForResource instead
   @Deprecated('Use AcpPresets.writeAcrForResource instead')
   static Future<void> writeAcrForResource(
     String resourceUrl,

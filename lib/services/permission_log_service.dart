@@ -71,7 +71,7 @@ class PermissionLogService {
     final normalizedGranter = PodUtils.normalizeWebId(granterWebId);
     final normalizedRecipient = PodUtils.normalizeWebId(recipientWebId);
 
-    debugPrint('🔍 Normalized WebIDs:');
+    debugPrint('(searching) Normalized WebIDs:');
     debugPrint('   Owner: $normalizedOwner');
     debugPrint('   Granter: $normalizedGranter');
     debugPrint('   Recipient: $normalizedRecipient');
@@ -97,10 +97,10 @@ class PermissionLogService {
     try {
       await _addLogEntry(granterWebId, logEntryId, logEntryStr);
       results['granter'] = 'success';
-      debugPrint('✅ Logged to granter\'s POD: $granterWebId');
+      debugPrint(' Logged to granter\'s POD: $granterWebId');
     } catch (e) {
       results['granter'] = 'failed: $e';
-      debugPrint('❌ Failed to log to granter\'s POD: $e');
+      debugPrint(' Failed to log to granter\'s POD: $e');
     }
 
     // Write to owner's log if different from granter
@@ -108,10 +108,10 @@ class PermissionLogService {
       try {
         await _addLogEntry(ownerWebId, logEntryId, logEntryStr);
         results['owner'] = 'success';
-        debugPrint('✅ Logged to owner\'s POD: $ownerWebId');
+        debugPrint(' Logged to owner\'s POD: $ownerWebId');
       } catch (e) {
         results['owner'] = 'failed: $e';
-        debugPrint('❌ Failed to log to owner\'s POD: $e');
+        debugPrint(' Failed to log to owner\'s POD: $e');
       }
     } else {
       results['owner'] = 'skipped (same as granter)';
@@ -314,8 +314,8 @@ INSERT DATA {
   static List<PermissionLogEntry> _parseLogEntries(String turtleContent, String webId) {
     final entries = <PermissionLogEntry>[];
     
-    debugPrint('🔍 Parsing log entries...');
-    debugPrint('   Content length: ${turtleContent.length} chars');
+    debugPrint('Parsing log entries...');
+    debugPrint('Content length: ${turtleContent.length} chars');
     
     // Try line-by-line parsing first (more reliable)
     final lines = turtleContent.split('\n');
@@ -330,7 +330,7 @@ INSERT DATA {
         // Extract log ID
         final logIdMatch = RegExp(r'log#(\d+)').firstMatch(line);
         if (logIdMatch == null) {
-          debugPrint('      ⚠️ No log ID found');
+          debugPrint('No log ID found');
           continue;
         }
         final logId = logIdMatch.group(1)!;
@@ -338,26 +338,26 @@ INSERT DATA {
         // Extract data string between quotes
         final dataMatch = RegExp(r'"([^"]+)"').firstMatch(line);
         if (dataMatch == null) {
-          debugPrint('      ⚠️ No quoted data found');
+          debugPrint('No quoted data found');
           continue;
         }
         final logData = dataMatch.group(1)!;
         
-        debugPrint('      ✓ Extracted - ID: $logId, Data length: ${logData.length}');
+        debugPrint('Extracted - ID: $logId, Data length: ${logData.length}');
         
         final entry = _parseLogData(logId, logData);
         if (entry != null) {
           entries.add(entry);
-          debugPrint('      ✅ Successfully parsed entry for: ${entry.resourceUrl.split('/').last}');
+          debugPrint('       Successfully parsed entry for: ${entry.resourceUrl.split('/').last}');
         } else {
-          debugPrint('      ❌ Failed to parse entry data');
+          debugPrint('       Failed to parse entry data');
         }
       }
     }
 
     debugPrint('   Processed $linesParsed lines with log entries');
     entries.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-    debugPrint('📊 Total entries parsed: ${entries.length}');
+    debugPrint('(log) Total entries parsed: ${entries.length}');
     
     return entries;
   }
@@ -367,7 +367,7 @@ INSERT DATA {
     try {
       final parts = logData.split(';');
       if (parts.length < 7) {
-        debugPrint('⚠️ Log data has insufficient parts: ${parts.length}');
+        debugPrint('warning Log data has insufficient parts: ${parts.length}');
         return null;
       }
 
@@ -386,11 +386,11 @@ INSERT DATA {
           final isoFormat = '$year-$month-${day}T$hour:$minute:$second';
           timestamp = DateTime.parse(isoFormat);
         } else {
-          debugPrint('⚠️ Invalid timestamp format: $timestampStr');
+          debugPrint('warning Invalid timestamp format: $timestampStr');
           timestamp = DateTime.now(); // Fallback
         }
       } catch (e) {
-        debugPrint('⚠️ Error parsing timestamp: $e');
+        debugPrint('warning Error parsing timestamp: $e');
         timestamp = DateTime.now(); // Fallback
       }
 
@@ -409,7 +409,7 @@ INSERT DATA {
             : null,
       );
     } catch (e) {
-      debugPrint('❌ Error parsing log entry: $e');
+      debugPrint(' Error parsing log entry: $e');
       debugPrint('   Log data: $logData');
       return null;
     }
@@ -467,11 +467,7 @@ INSERT DATA {
             log.permissionType == 'grant')
         .toList();
   }
-
-  // ============================================================================
   // ACP POLICY LOGGING HELPERS
-  // Convenience methods for logging specific ACP policy applications
-  // ============================================================================
 
   /// Log owner-only policy application (private resource)
   static Future<void> logOwnerOnlyPolicy({
@@ -490,7 +486,7 @@ INSERT DATA {
       );
       debugPrint('📝 Logged owner-only policy for $resourceUrl');
     } catch (e) {
-      debugPrint('⚠️ Failed to log owner-only policy: $e');
+      debugPrint('warning Failed to log owner-only policy: $e');
       // Non-fatal - don't rethrow
     }
   }
@@ -517,7 +513,7 @@ INSERT DATA {
       }
       debugPrint('📝 Logged shared-read policy for ${readerWebIds.length} readers');
     } catch (e) {
-      debugPrint('⚠️ Failed to log shared-read policy: $e');
+      debugPrint('warning Failed to log shared-read policy: $e');
       // Non-fatal - don't rethrow
     }
   }
@@ -544,7 +540,7 @@ INSERT DATA {
       }
       debugPrint('📝 Logged shared-write policy for ${writerWebIds.length} writers');
     } catch (e) {
-      debugPrint('⚠️ Failed to log shared-write policy: $e');
+      debugPrint('warning Failed to log shared-write policy: $e');
       // Non-fatal - don't rethrow
     }
   }
@@ -610,7 +606,7 @@ INSERT DATA {
                          (viewerWebIds?.length ?? 0);
       debugPrint('📝 Logged team-collab policy for $totalLogged members');
     } catch (e) {
-      debugPrint('⚠️ Failed to log team-collab policy: $e');
+      debugPrint('warning Failed to log team-collab policy: $e');
       // Non-fatal - don't rethrow
     }
   }
@@ -634,7 +630,7 @@ INSERT DATA {
       );
       debugPrint('📝 Logged public-read policy');
     } catch (e) {
-      debugPrint('⚠️ Failed to log public-read policy: $e');
+      debugPrint('warning Failed to log public-read policy: $e');
       // Non-fatal - don't rethrow
     }
   }
@@ -661,7 +657,7 @@ INSERT DATA {
       );
       debugPrint('📝 Logged permission revoke for $recipientWebId');
     } catch (e) {
-      debugPrint('⚠️ Failed to log permission revoke: $e');
+      debugPrint('warning Failed to log permission revoke: $e');
       // Non-fatal - don't rethrow
     }
   }

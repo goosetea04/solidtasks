@@ -292,7 +292,7 @@ class PolicyManager {
   }
   
   /// Create an ACR that references a centralized policy
-  /// This is what you attach to each resource (task)
+  /// This is what we attach to each resource (task)
   static Future<void> applyPolicyToResource({
     required String resourceUrl,
     required String policyFileName,
@@ -403,6 +403,6 @@ ${additionalReaders != null && additionalReaders.isNotEmpty ? '''
       throw Exception('Failed to apply policy: ${response.statusCode}');
     }
     
-    debugPrint('✅ Applied policy $policyFileName to $resourceUrl');
+    debugPrint('(check) Applied policy $policyFileName to $resourceUrl');
   }
 }

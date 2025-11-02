@@ -125,7 +125,7 @@ class SharingService {
       debugPrint('   Inbox URL: ${inboxUrl ?? "NOT FOUND"}');
       
       if (inboxUrl == null) {
-        debugPrint('⚠️ Could not find inbox for $recipientWebId');
+        debugPrint('warning Could not find inbox for $recipientWebId');
         // Don't throw - inbox is optional
         return;
       }
@@ -140,10 +140,10 @@ class SharingService {
 
       debugPrint('   Posting notification to inbox...');
       await _postToInbox(inboxUrl, notification);
-      debugPrint('✅ Notification sent successfully');
+      debugPrint('(check) Notification sent successfully');
       
     } catch (e) {
-      debugPrint('⚠️ Error sending sharing notification: $e');
+      debugPrint('warning Error sending sharing notification: $e');
       // Don't rethrow - notification is optional
     }
   }
@@ -260,7 +260,7 @@ class SharingService {
   /// Get shared resources for a user from permission logs
   static Future<List<SharedResource>> getSharedResources(String userWebId) async {
     try {
-      debugPrint('🔍 Getting shared resources for: $userWebId');
+      debugPrint('(searching) Getting shared resources for: $userWebId');
       
       // Normalize the user's WebID
       final normalizedUserWebId = PodUtils.normalizeWebId(userWebId);
@@ -290,7 +290,7 @@ class SharingService {
       )).toList();
       
     } catch (e) {
-      debugPrint('❌ Error getting shared resources: $e');
+      debugPrint('(fail) Error getting shared resources: $e');
       return [];
     }
   }
@@ -298,7 +298,7 @@ class SharingService {
   /// Test if user has access to a resource
   static Future<bool> canAccessResource(String resourceUrl, String userWebId) async {
     try {
-      debugPrint('🔍 Testing access to: $resourceUrl');
+      debugPrint('(searching) Testing access to: $resourceUrl');
       final (:accessToken, :dPopToken) = await getTokensForResource(resourceUrl, 'GET');
       final response = await http.head(
         Uri.parse(resourceUrl),
@@ -309,10 +309,10 @@ class SharingService {
       );
       
       final canAccess = [200, 204].contains(response.statusCode);
-      debugPrint('   Access result: ${canAccess ? "✅ GRANTED" : "❌ DENIED"} (${response.statusCode})');
+      debugPrint('   Access result: ${canAccess ? "(check) GRANTED" : "(fail) DENIED"} (${response.statusCode})');
       return canAccess;
     } catch (e) {
-      debugPrint('❌ Error testing resource access: $e');
+      debugPrint('(fail) Error testing resource access: $e');
       return false;
     }
   }

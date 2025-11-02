@@ -151,7 +151,6 @@ class AcpService {
     }
   }
   
-  // ============================================================================
   // LEGACY INLINE ACR METHODS (For backward compatibility)
   static Future<void> writeInlineAcr(
     String resourceUrl,
@@ -312,9 +311,6 @@ class AcpPresets {
   }
   
   /// Basic ACR for simple patterns (DEPRECATED - use centralized policies)
-  /// 
-  /// This method exists for backward compatibility only.
-  /// New code should use PolicyManager.applyPolicyToResource() instead.
   @Deprecated('Use PolicyManager.applyPolicyToResource() with centralized policies')
   static Future<void> writeAcrForResource(
     String resourceUrl,
@@ -354,7 +350,6 @@ class AcpPresets {
   }
   
   // Legacy method names for backward compatibility
-  
   @Deprecated('Use AcpPresets.shareReadOnly() instead')
   static Future<void> appScopedAccess(
     String resourceUrl, 
