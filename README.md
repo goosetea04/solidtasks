@@ -1,6 +1,6 @@
 # solidtasks
 
-This project was done as part of [https://programsandcourses.anu.edu.au/course/comp3740](**COMP3740 - Individual Project**) at the ANU. This project was supervised by Dr. Graham WIlliams and Dr. Anushka Vidanage.
+This project was done as part of [**COMP3740 - Individual Project**](https://programsandcourses.anu.edu.au/course/comp3740) at the ANU. This project was supervised by Dr. Graham WIlliams and Dr. Anushka Vidanage.
 
 **solidtasks** is a Flutter-based task management app that leverages decentralized data storage and fine-grained access control using [Solid Pods](https://solidproject.org/). This project empowers users to securely create, store, and share tasks while maintaining full ownership and privacy over their data.
 
